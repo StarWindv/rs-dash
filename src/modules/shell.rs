@@ -20,6 +20,12 @@ pub struct Shell {
     pub interactive: bool,
     /// Environment variables
     pub env_vars: HashMap<String, String>,
+    /// Positional parameters ($1, $2, ...)
+    pub positional_params: Vec<String>,
+    /// Shell name ($0)
+    pub shell_name: String,
+    /// Shell options ($-)
+    pub options: String,
 }
 
 impl Shell {
@@ -36,12 +42,41 @@ impl Shell {
             env_vars.insert(key, value);
         }
         
+        // Get shell name from command line
+        let shell_name = env::args()
+            .next()
+            .unwrap_or_else(|| "rs-dash".to_string());
+        
         Self {
             current_dir,
             last_exit_status: 0,
             interactive: false,
             env_vars,
+            positional_params: Vec::new(),
+            shell_name,
+            options: String::new(),  // Empty options for now
         }
+    }
+    
+    /// Set positional parameters
+    pub fn set_positional_params(&mut self, params: Vec<String>) {
+        self.positional_params = params;
+    }
+    
+    /// Get positional parameter by index (1-based)
+    pub fn get_positional_param(&self, index: usize) -> Option<&str> {
+        if index == 0 {
+            Some(&self.shell_name)
+        } else if index <= self.positional_params.len() {
+            Some(&self.positional_params[index - 1])
+        } else {
+            None
+        }
+    }
+    
+    /// Get number of positional parameters
+    pub fn positional_param_count(&self) -> usize {
+        self.positional_params.len()
     }
     
     /// Execute a command line (may contain multiple commands separated by ; && || |)

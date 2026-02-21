@@ -20,6 +20,13 @@ fn main() {
     if args.len() > 1 {
         if args[1] == "-c" && args.len() > 2 {
             // Execute command string
+            // Arguments after -c command are positional parameters
+            let mut positional_params = Vec::new();
+            if args.len() > 3 {
+                positional_params = args[3..].to_vec();
+            }
+            shell.set_positional_params(positional_params);
+            
             let exit_status = shell.run_command_string(&args[2]);
             process::exit(exit_status);
         } else if args[1] == "--help" || args[1] == "-h" {
@@ -31,6 +38,13 @@ fn main() {
             process::exit(0);
         } else {
             // Assume it's a script file
+            // Arguments after script name are positional parameters
+            let mut positional_params = Vec::new();
+            if args.len() > 2 {
+                positional_params = args[2..].to_vec();
+            }
+            shell.set_positional_params(positional_params);
+            
             let exit_status = shell.run_script_file(&args[1]);
             process::exit(exit_status);
         }

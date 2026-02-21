@@ -1,0 +1,2 @@
+VAR=test
+echo ${VAR}
