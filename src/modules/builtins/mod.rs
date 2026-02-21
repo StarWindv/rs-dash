@@ -11,6 +11,9 @@ mod exit;
 mod help;
 mod r#true;
 mod r#false;
+mod r#return;
+mod test;
+mod bracket;
 
 pub use registry::BuiltinRegistry;
 pub use cd::CdBuiltin;
@@ -20,6 +23,9 @@ pub use exit::ExitBuiltin;
 pub use help::HelpBuiltin;
 pub use r#true::TrueBuiltin;
 pub use r#false::FalseBuiltin;
+pub use r#return::ReturnBuiltin;
+pub use test::TestBuiltin;
+pub use bracket::BracketBuiltin;
 
 /// Trait for builtin commands
 pub trait Builtin: Send + Sync {
@@ -49,6 +55,9 @@ pub fn create_registry() -> Rc<BuiltinRegistry> {
     registry.register(Box::new(HelpBuiltin));
     registry.register(Box::new(TrueBuiltin));
     registry.register(Box::new(FalseBuiltin));
+    registry.register(Box::new(ReturnBuiltin));
+    registry.register(Box::new(TestBuiltin));
+    registry.register(Box::new(BracketBuiltin));
     
     Rc::new(registry)
 }

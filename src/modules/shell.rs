@@ -6,10 +6,14 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 use crate::modules::builtins;
+use crate::modules::control;
 use crate::modules::expansion;
+use crate::modules::functions;
 use crate::modules::parser;
 use crate::modules::pipeline;
+use crate::modules::process_substitution;
 use crate::modules::redirection;
+use crate::modules::subshell;
 
 /// Compile-time constants
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -33,6 +37,8 @@ pub struct Shell {
     pub options: String,
     /// Builtin command registry
     pub builtin_registry: Rc<builtins::BuiltinRegistry>,
+    /// Function table
+    pub function_table: functions::FunctionTable,
 }
 
 impl Shell {
@@ -66,6 +72,7 @@ impl Shell {
             shell_name,
             options: String::new(),  // Empty options for now
             builtin_registry,
+            function_table: functions::FunctionTable::new(),
         }
     }
     
@@ -92,14 +99,39 @@ impl Shell {
     
     /// Execute a command line (may contain multiple commands separated by ; && || |)
     pub fn execute_command_line(&mut self, line: &str) -> i32 {
+        // Handle process substitution first
+        let processed_line = match process_substitution::handle_process_substitution(self, line) {
+            Ok(line) => line,
+            Err(status) => {
+                self.last_exit_status = status;
+                return status;
+            }
+        };
+        
+        // Check if it's a control structure (needs to be handled as a whole)
+        if control::is_control_structure(&processed_line) {
+            match control::parse_control_structure(&processed_line) {
+                Ok(control_struct) => {
+                    let status = control::ControlExecutor::execute(self, &control_struct);
+                    self.last_exit_status = status;
+                    return status;
+                }
+                Err(e) => {
+                    eprintln!("Error parsing control structure: {}", e);
+                    self.last_exit_status = 1;
+                    return 1;
+                }
+            }
+        }
+        
         // Check for pipelines
-        if pipeline::has_pipeline(line) {
+        if pipeline::has_pipeline(&processed_line) {
             // Handle pipeline
-            return pipeline::execute_pipeline(self, line);
+            return pipeline::execute_pipeline(self, &processed_line);
         }
         
         // Handle regular commands with separators
-        let mut commands = parser::split_commands(line);
+        let mut commands = parser::split_commands(&processed_line);
         let mut last_status = 0;
         
         while let Some((cmd_str, sep)) = commands.next() {
@@ -129,6 +161,44 @@ impl Shell {
     
     /// Execute a single command (no separators, no pipes)
     pub fn execute_single_command(&mut self, cmd_str: &str) -> i32 {
+        // Check for subshell first
+        if subshell::has_subshell(cmd_str) {
+            return subshell::execute_subshell(self, cmd_str);
+        }
+        
+        // Check for function definitions first
+        if functions::is_function_definition(cmd_str) {
+            match functions::parse_function_definition(cmd_str) {
+                Ok((name, body)) => {
+                    self.function_table.define(name, body);
+                    return 0;
+                }
+                Err(e) => {
+                    eprintln!("Error parsing function definition: {}", e);
+                    return 1;
+                }
+            }
+        }
+        
+        // Check if it's a function call
+        let (cmd, args) = parser::parse_command(cmd_str);
+        if self.function_table.exists(&cmd) {
+            // Save current positional parameters
+            let saved_positional_params = self.positional_params.clone();
+            
+            // Set new positional parameters from function arguments
+            self.positional_params = args;
+            
+            // Execute the function
+            let status = functions::execute_function(self, &cmd);
+            
+            // Restore positional parameters
+            self.positional_params = saved_positional_params;
+            
+            self.last_exit_status = status;
+            return status;
+        }
+        
         // Check for variable assignment
         if let Some(equals_pos) = cmd_str.find('=') {
             // Check if it's a valid variable assignment (no spaces before =)
