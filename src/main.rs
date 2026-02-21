@@ -8,6 +8,11 @@ mod modules;
 
 use modules::shell::Shell;
 
+/// Compile-time constants
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const NAME: &str = env!("CARGO_PKG_NAME");
+const DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
+
 /// Main function
 fn main() {
     // Get command line arguments
@@ -33,8 +38,8 @@ fn main() {
             modules::builtins::help_command(&shell, &[]);
             process::exit(0);
         } else if args[1] == "--version" || args[1] == "-v" {
-            println!("rs-dash version 0.1.0");
-            println!("A Rust implementation of dash shell");
+            println!("{} version {}", NAME, VERSION);
+            println!("{}", DESCRIPTION);
             process::exit(0);
         } else {
             // Assume it's a script file

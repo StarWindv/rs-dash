@@ -88,11 +88,45 @@ impl ArithmeticEvaluator {
                 // Numbers
                 '0'..='9' => {
                     let mut num_str = String::new();
-                    while let Some(&d) = chars.peek() {
-                        if d.is_digit(10) {
-                            num_str.push(chars.next().unwrap());
-                        } else {
-                            break;
+                    // Read the first character (it's a digit)
+                    num_str.push(chars.next().unwrap());
+                    
+                    // Check for hex or octal prefix
+                    if num_str == "0" {
+                        if let Some(&next) = chars.peek() {
+                            if next == 'x' || next == 'X' {
+                                // Hex number: 0x...
+                                num_str.push(chars.next().unwrap()); // 'x' or 'X'
+                                // Read hex digits
+                                while let Some(&d) = chars.peek() {
+                                    if d.is_digit(16) {
+                                        num_str.push(chars.next().unwrap());
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            } else if next.is_digit(8) {
+                                // Octal number: 0...
+                                // Read octal digits (already read the leading 0)
+                                while let Some(&d) = chars.peek() {
+                                    if d.is_digit(8) {
+                                        num_str.push(chars.next().unwrap());
+                                    } else {
+                                        break;
+                                    }
+                                }
+                            } else {
+                                // Just 0, nothing more to read
+                            }
+                        }
+                    } else {
+                        // Decimal number starting with non-zero
+                        while let Some(&d) = chars.peek() {
+                            if d.is_digit(10) {
+                                num_str.push(chars.next().unwrap());
+                            } else {
+                                break;
+                            }
                         }
                     }
                     
@@ -100,7 +134,12 @@ impl ArithmeticEvaluator {
                     let num = if num_str.starts_with("0x") || num_str.starts_with("0X") {
                         i64::from_str_radix(&num_str[2..], 16)
                     } else if num_str.starts_with("0") && num_str.len() > 1 {
-                        i64::from_str_radix(&num_str[1..], 8)
+                        // Check if it's just "0" or octal
+                        if num_str.len() == 1 {
+                            Ok(0)
+                        } else {
+                            i64::from_str_radix(&num_str[1..], 8)
+                        }
                     } else {
                         num_str.parse()
                     };

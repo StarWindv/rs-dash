@@ -4,6 +4,11 @@ use std::env;
 use std::process;
 use crate::modules::shell::Shell;
 
+/// Compile-time constants
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const NAME: &str = env!("CARGO_PKG_NAME");
+const DESCRIPTION: &str = env!("CARGO_PKG_DESCRIPTION");
+
 /// Check if a command is a builtin
 pub fn is_builtin(cmd: &str) -> bool {
     matches!(cmd, "cd" | "pwd" | "echo" | "exit" | "help" | "true" | "false")
@@ -151,7 +156,7 @@ fn false_command(_shell: &Shell, _args: &[String]) -> i32 {
 
 /// Help command
 pub fn help_command(_shell: &Shell, _args: &[String]) -> i32 {
-    println!("rs-dash - A Rust implementation of dash shell");
+    println!("{} v{} - {}", NAME, VERSION, DESCRIPTION);
     println!();
     println!("Built-in commands:");
     println!("  cd [dir]       Change directory");

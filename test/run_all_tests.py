@@ -61,6 +61,7 @@ def main():
         ("Unit", os.path.join(test_dir, "unit", "test_basic.py")),
         ("Integration", os.path.join(test_dir, "integration", "test_integration.py")),
         ("Regression", os.path.join(test_dir, "regression", "test_regression.py")),
+        ("Conformance", os.path.join(test_dir, "conformance", "test_posix.py")),
     ]
     
     results = {}

@@ -10,6 +10,10 @@ use crate::modules::parser;
 use crate::modules::pipeline;
 use crate::modules::redirection;
 
+/// Compile-time constants
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const NAME: &str = env!("CARGO_PKG_NAME");
+
 /// Main shell structure
 pub struct Shell {
     /// Current working directory
@@ -45,7 +49,7 @@ impl Shell {
         // Get shell name from command line
         let shell_name = env::args()
             .next()
-            .unwrap_or_else(|| "rs-dash".to_string());
+            .unwrap_or_else(|| NAME.to_string());
         
         Self {
             current_dir,
@@ -304,7 +308,7 @@ impl Shell {
     pub fn run_interactive(&mut self) {
         self.interactive = true;
         
-        println!("rs-dash v0.1.0");
+        println!("{} v{}", NAME, VERSION);
         println!("Type 'help' for help, 'exit' to quit");
         
         loop {
