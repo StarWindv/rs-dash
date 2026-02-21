@@ -3,6 +3,7 @@
 
 use std::env;
 use std::process;
+use std::rc::Rc;
 
 mod modules;
 
@@ -35,7 +36,10 @@ fn main() {
             let exit_status = shell.run_command_string(&args[2]);
             process::exit(exit_status);
         } else if args[1] == "--help" || args[1] == "-h" {
-            modules::builtins::help_command(&shell, &[]);
+            // Execute help builtin through registry
+            let registry = Rc::clone(&shell.builtin_registry);
+            let empty_args: Vec<String> = Vec::new();
+            let _ = registry.execute_builtin(&mut shell, "help", &empty_args);
             process::exit(0);
         } else if args[1] == "--version" || args[1] == "-v" {
             println!("{} version {}", NAME, VERSION);

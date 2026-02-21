@@ -3,6 +3,7 @@
 use std::env;
 use std::io::{self, Write};
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::modules::builtins;
 use crate::modules::expansion;
@@ -30,6 +31,8 @@ pub struct Shell {
     pub shell_name: String,
     /// Shell options ($-)
     pub options: String,
+    /// Builtin command registry
+    pub builtin_registry: Rc<builtins::BuiltinRegistry>,
 }
 
 impl Shell {
@@ -51,6 +54,9 @@ impl Shell {
             .next()
             .unwrap_or_else(|| NAME.to_string());
         
+        // Create builtin registry
+        let builtin_registry = builtins::create_registry();
+        
         Self {
             current_dir,
             last_exit_status: 0,
@@ -59,6 +65,7 @@ impl Shell {
             positional_params: Vec::new(),
             shell_name,
             options: String::new(),  // Empty options for now
+            builtin_registry,
         }
     }
     
@@ -151,8 +158,10 @@ impl Shell {
             .map(|arg| expansion::expand_variables(self, arg))
             .collect::<Vec<String>>();
         
-        let status = if builtins::is_builtin(&cmd) {
-            builtins::execute_builtin(self, &cmd, &args)
+        let status = if self.builtin_registry.has_builtin(&cmd) {
+            // Clone the Rc to avoid borrowing issues
+            let registry = Rc::clone(&self.builtin_registry);
+            registry.execute_builtin(self, &cmd, &args)
         } else {
             self.external_command(&cmd, &args, false, None)
         };
@@ -177,7 +186,7 @@ impl Shell {
             .map(|arg| expansion::expand_variables(self, arg))
             .collect::<Vec<String>>();
         
-        if builtins::is_builtin(&cmd) {
+        if self.builtin_registry.has_builtin(&cmd) {
             // For builtins, we need to capture output
             // For simplicity, we'll handle common builtins
             match cmd.as_str() {
@@ -190,7 +199,8 @@ impl Shell {
                 }
                 _ => {
                     // Execute but don't capture output
-                    let _ = builtins::execute_builtin(self, &cmd, &args);
+                    let registry = Rc::clone(&self.builtin_registry);
+                    let _ = registry.execute_builtin(self, &cmd, &args);
                     return String::new();
                 }
             }

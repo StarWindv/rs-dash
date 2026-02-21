@@ -2,9 +2,9 @@
 
 use std::process::{Command, Stdio};
 use std::io::{self, Write};
+use std::rc::Rc;
 
 use crate::modules::shell::Shell;
-use crate::modules::builtins;
 use crate::modules::expansion;
 use crate::modules::parser;
 
@@ -59,9 +59,10 @@ pub fn execute_pipeline(shell: &mut Shell, line: &str) -> i32 {
             .map(|arg| expansion::expand_variables_simple(shell, arg))
             .collect::<Vec<String>>();
         
-        if builtins::is_builtin(&cmd) {
+        if shell.builtin_registry.has_builtin(&cmd) {
             // For builtins in pipeline, we need to capture output
-            last_status = builtins::execute_builtin_in_pipeline(shell, &cmd, &args, is_last);
+            let registry = Rc::clone(&shell.builtin_registry);
+            last_status = registry.execute_builtin_in_pipeline(shell, &cmd, &args, is_last);
         } else {
             // External command
             let path = shell.find_in_path(&cmd)

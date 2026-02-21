@@ -3,84 +3,52 @@
 ## Project Goal
 Complete implementation of a POSIX-compatible dash shell in Rust, matching all features of the original dash while maintaining Rust's safety guarantees.
 
-## Current Version: 0.0.1
-**Status**: Basic shell with limited functionality
+## Current Status: v0.0.1
+**Based on Code Review**: Basic shell with core functionality working, but missing many POSIX features
+
+## ✅ Currently Working Features
+1. **Basic command execution**: External commands with PATH search
+2. **Built-in commands**: `cd`, `echo`, `exit`, `true`/`false`, `pwd`, `help`
+3. **Command separators**: `;`, `&&`, `||`
+4. **Pipelines**: Basic `|` support
+5. **Redirections**: `>`, `>>`, `<`
+6. **Variables**: Assignment and basic expansion (`$VAR`)
+7. **Command substitution**: `$(command)` syntax
+8. **Parameter expansion**: Basic `${parameter}` forms
+9. **Arithmetic expansion**: `$((expression))` with full operator support
+10. **Positional parameters**: `$1`, `$2`, etc. basic support
+
+## Immediate Issues to Address
+
+### 1. Clean Up Dead Code
+- **Remove or implement unused modules**: `grammar.rs`, `tokens.rs`
+- **Fix compilation warnings**: 10 warnings currently
+- **Consolidate expansion logic**: `expansion.rs`, `param_expand.rs`, `arithmetic.rs`
+
+### 2. Improve Test Coverage
+- **Expand unit tests**: Test all implemented features
+- **Add integration tests**: Compare with dash behavior
+- **Create conformance tests**: POSIX compliance testing
+
+### 3. Fix Known Bugs
+- **Command substitution edge cases**: Nested substitutions, quoting
+- **Redirection parsing**: Ensure `>` and `<` are not treated as arguments
+- **Cross-platform issues**: Windows PATH handling, line endings
 
 ## Priority 1: Core POSIX Compliance (Foundation)
 
 ### 1.1 Complete Parser Implementation
-- [ ] Implement full POSIX shell grammar parser
-- [ ] Add yacc/lex equivalent or hand-written recursive descent
-- [ ] Support all token types from dash
-- [ ] Handle complex quoting rules correctly
-- [ ] Implement proper word splitting
+- [ ] **Fix current parser issues**: Handle complex quoting, nested expansions
+- [ ] **Add full POSIX grammar**: Support all shell grammar constructs
+- [ ] **Implement token stream**: Use `tokens.rs` and `grammar.rs` modules
+- [ ] **Add parse tree generation**: Build proper AST for complex commands
 
 **Files to modify**:
-- `src/modules/parser.rs` - Complete rewrite or major extension
-- New: `src/modules/grammar.rs` - Grammar definitions
-- New: `src/modules/tokens.rs` - Token definitions
+- `src/modules/parser.rs` - Major extension
+- `src/modules/grammar.rs` - Implement unused code
+- `src/modules/tokens.rs` - Implement unused code
 
-### 1.2 Parameter Expansion System
-- [ ] Implement `${parameter}` syntax
-- [ ] Add all expansion forms:
-  - `${parameter:-word}` - Use default value
-  - `${parameter:=word}` - Assign default value
-  - `${parameter:?word}` - Display error if null/unset
-  - `${parameter:+word}` - Use alternate value
-- [ ] String operations:
-  - `${#parameter}` - String length
-  - `${parameter%word}` - Remove smallest suffix pattern
-  - `${parameter%%word}` - Remove largest suffix pattern
-  - `${parameter#word}` - Remove smallest prefix pattern
-  - `${parameter##word}` - Remove largest prefix pattern
-  - `${parameter/pattern/string}` - Pattern substitution
-  - `${parameter//pattern/string}` - Global pattern substitution
-
-**Files to modify**:
-- `src/modules/expansion.rs` - Major extension
-- New: `src/modules/param_expand.rs` - Parameter expansion engine
-
-### 1.3 Arithmetic Expansion
-- [ ] Implement `$((expression))` syntax
-- [ ] Support all arithmetic operators:
-  - Basic: `+`, `-`, `*`, `/`, `%`
-  - Bitwise: `&`, `|`, `^`, `~`, `<<`, `>>`
-  - Logical: `!`, `&&`, `||`
-  - Comparison: `==`, `!=`, `<`, `<=`, `>`, `>=`
-  - Ternary: `? :`
-  - Comma: `,`
-- [ ] Handle integer constants in different bases
-- [ ] Support variable references in expressions
-
-**Files to create**:
-- `src/modules/arithmetic.rs` - Arithmetic parser and evaluator
-- `src/modules/arith_lexer.rs` - Lexer for arithmetic expressions
-- `src/modules/arith_parser.rs` - Parser for arithmetic expressions
-
-### 1.4 Positional Parameters
-- [ ] Implement `$1`, `$2`, ... `$9`, `${10}`, etc.
-- [ ] Support `$@` and `$*` with proper quoting differences
-- [ ] Implement `shift` builtin
-- [ ] Handle `set --` for setting positional parameters
-
-**Files to modify**:
-- `src/modules/shell.rs` - Add positional parameters storage
-- `src/modules/expansion.rs` - Add positional parameter expansion
-- New: `src/modules/builtins/set.rs` - `set` builtin
-- New: `src/modules/builtins/shift.rs` - `shift` builtin
-
-### 1.5 Special Parameters
-- [ ] Implement all special parameters:
-  - `$?` - Exit status (already implemented)
-  - `$$` - PID (already implemented)
-  - `$!` - PID of last background command
-  - `$0` - Shell name (already implemented)
-  - `$-` - Current option flags
-  - `$#` - Number of positional parameters
-
-## Priority 2: Shell Scripting Features
-
-### 2.1 Compound Commands
+### 1.2 Control Structures Implementation
 - [ ] **If statements**: `if-then-elif-else-fi`
 - [ ] **For loops**: `for var in words; do commands; done`
 - [ ] **While loops**: `while condition; do commands; done`
@@ -90,47 +58,42 @@ Complete implementation of a POSIX-compatible dash shell in Rust, matching all f
 
 **Files to create**:
 - `src/modules/control.rs` - Control structure execution
-- `src/modules/condition.rs` - Condition evaluation ([ command)
+- `src/modules/condition.rs` - Condition evaluation
 - New: `src/modules/builtins/test.rs` - `test` and `[` builtins
 
-### 2.2 Functions
-- [ ] Function definition: `name() compound-command`
-- [ ] Local variables within functions
-- [ ] `return` builtin for function exit
-- [ ] Function name space management
-- [ ] Function tracing support
+### 1.3 Functions
+- [ ] **Function definition**: `name() compound-command`
+- [ ] **Local variables**: Variable scoping within functions
+- [ ] **`return` builtin**: Function exit with status
+- [ ] **Function namespace**: Manage function definitions
 
 **Files to create**:
 - `src/modules/functions.rs` - Function storage and execution
 - New: `src/modules/builtins/return.rs` - `return` builtin
 
-### 2.3 Here Documents
-- [ ] Basic here-doc: `<< EOF`
-- [ ] Here-doc with tab suppression: `<<- EOF`
-- [ ] Quoted here-doc: `<< "EOF"` (no expansion)
-- [ ] Here-string: `<<< "string"`
+### 1.4 Subshells and Process Substitution
+- [ ] **Subshell execution**: `(command)` syntax
+- [ ] **Process substitution**: `<(command)` and `>(command)`
+- [ ] **Coprocesses**: `command |&` syntax
 
-**Files to modify**:
-- `src/modules/redirection.rs` - Extend redirection handling
-- New: `src/modules/heredoc.rs` - Here-document processing
+## Priority 2: Built-in Commands Completion
 
-## Priority 3: Built-in Commands
-
-### 3.1 POSIX Special Builtins (Must implement)
+### 2.1 POSIX Special Builtins (Must implement)
 - [ ] `.` (dot) - `src/modules/builtins/dot.rs`
 - [ ] `:` (colon) - `src/modules/builtins/colon.rs`
-- [ ] `break` - `src/modules/builtins/break.rs`
-- [ ] `continue` - `src/modules/builtins/continue.rs`
+- [ ] `break` - `src/modules/builtins/break.rs` (requires loops)
+- [ ] `continue` - `src/modules/builtins/continue.rs` (requires loops)
 - [ ] `eval` - `src/modules/builtins/eval.rs`
 - [ ] `exec` - `src/modules/builtins/exec.rs`
 - [ ] `export` - `src/modules/builtins/export.rs`
 - [ ] `readonly` - `src/modules/builtins/readonly.rs`
 - [ ] `set` - `src/modules/builtins/set.rs`
+- [ ] `shift` - `src/modules/builtins/shift.rs`
 - [ ] `times` - `src/modules/builtins/times.rs`
 - [ ] `trap` - `src/modules/builtins/trap.rs`
 - [ ] `unset` - `src/modules/builtins/unset.rs`
 
-### 3.2 POSIX Standard Utilities
+### 2.2 POSIX Standard Utilities
 - [ ] `alias`/`unalias` - `src/modules/builtins/alias.rs`
 - [ ] `bg` - `src/modules/builtins/bg.rs` (requires job control)
 - [ ] `command` - `src/modules/builtins/command.rs`
@@ -141,202 +104,211 @@ Complete implementation of a POSIX-compatible dash shell in Rust, matching all f
 - [ ] `jobs` - `src/modules/builtins/jobs.rs` (requires job control)
 - [ ] `kill` - `src/modules/builtins/kill.rs`
 - [ ] `read` - `src/modules/builtins/read.rs`
+- [ ] `test`/`[` - `src/modules/builtins/test.rs`
 - [ ] `type` - `src/modules/builtins/type.rs`
 - [ ] `umask` - `src/modules/builtins/umask.rs`
 - [ ] `ulimit` - `src/modules/builtins/ulimit.rs`
 - [ ] `wait` - `src/modules/builtins/wait.rs`
 
-### 3.3 Enhanced Existing Builtins
-- [ ] `cd`: Add `CDPATH` support
+### 2.3 Enhanced Existing Builtins
+- [ ] `cd`: Add `CDPATH` support, `-L` and `-P` options
 - [ ] `echo`: Add `-n`, `-e`, `-E` options
-- [ ] `exit`: Handle exit traps
+- [ ] `exit`: Handle exit traps, optional status argument
 - [ ] `pwd`: Add `-L` and `-P` options
 
-## Priority 4: Job Control & Process Management
+## Priority 3: Job Control & Process Management
 
-### 4.1 Job Control Infrastructure
-- [ ] Process group management
-- [ ] Background execution with `&`
-- [ ] Job table maintenance
-- [ ] Terminal control (tcsetpgrp, etc.)
-- [ ] Signal handling for job control
+### 3.1 Job Control Infrastructure
+- [ ] **Process group management**: Setpgid, tcsetpgrp
+- [ ] **Background execution**: `&` operator support
+- [ ] **Job table**: Track background jobs
+- [ ] **Signal handling**: SIGINT, SIGTSTP, SIGCONT
 
 **Files to create**:
 - `src/modules/jobs.rs` - Job table and management
 - `src/modules/process.rs` - Process group handling
 - `src/modules/signals.rs` - Signal handling
 
-### 4.2 Job Control Builtins
-- [ ] `jobs` - List jobs
+### 3.2 Job Control Builtins
+- [ ] `jobs` - List background jobs
 - [ ] `fg` - Bring job to foreground
 - [ ] `bg` - Continue job in background
 - [ ] `wait` - Wait for job completion
 
-### 4.3 Signal Handling
-- [ ] `trap` builtin implementation
-- [ ] Signal delivery to processes
-- [ ] Signal masks and handlers
-- [ ] Ignored signals handling
+## Priority 4: Advanced Shell Features
 
-## Priority 5: Advanced Features
+### 4.1 Here Documents
+- [ ] **Basic here-doc**: `<< EOF`
+- [ ] **Here-doc with tab suppression**: `<<- EOF`
+- [ ] **Quoted here-doc**: `<< "EOF"` (no expansion)
+- [ ] **Here-string**: `<<< "string"`
 
-### 5.1 Arrays
-- [ ] Indexed array support
-- [ ] Associative arrays (if dash supports)
-- [ ] Array expansion `${array[@]}` and `${array[*]}`
-- [ ] Array slicing `${array[@]:start:length}`
+**Files to modify**:
+- `src/modules/redirection.rs` - Extend redirection handling
+- New: `src/modules/heredoc.rs` - Here-document processing
 
-### 5.2 History
-- [ ] Command history storage
-- [ ] History file management (`~/.dash_history`)
-- [ ] History expansion (`!`, `!!`, `!string`, etc.)
-- [ ] `fc` builtin for history editing
+### 4.2 Arrays
+- [ ] **Indexed arrays**: `array=(element1 element2)`
+- [ ] **Array expansion**: `${array[@]}`, `${array[*]}`
+- [ ] **Array slicing**: `${array[@]:start:length}`
+- [ ] **Associative arrays**: If dash supports them
+
+### 4.3 History System
+- [ ] **Command history storage**: In-memory and file-based
+- [ ] **History expansion**: `!`, `!!`, `!n`, `!-n`, `!string`
+- [ ] **`fc` builtin**: History editor
+- [ ] **History file**: `~/.dash_history`
 
 **Files to create**:
 - `src/modules/history.rs` - History management
 - `src/modules/histexpand.rs` - History expansion
 
-### 5.3 Completion
-- [ ] Basic tab completion
-- [ ] Programmable completion framework
-- [ ] Completion for builtins
+### 4.4 Shell Options
+- [ ] **`set` options**: `-e`, `-u`, `-x`, `-o option`
+- [ ] **Option inheritance**: For subshells
+- [ ] **Interactive options**: `-i`, `-m`, `-s`
 
-### 5.4 Shell Options
-- [ ] `set -o` options implementation
-- [ ] Option inheritance for subshells
-- [ ] Interactive mode options
+## Priority 5: Performance & Optimization
 
-## Priority 6: Performance & Optimization
+### 5.1 Command Hashing
+- [ ] **`hash` builtin implementation**
+- [ ] **Command path caching**: Avoid repeated PATH searches
+- [ ] **Hash table**: Fast command lookup
 
-### 6.1 Command Hashing
-- [ ] `hash` builtin implementation
-- [ ] Command path caching
-- [ ] Hash table for fast command lookup
+### 5.2 Builtin Optimization
+- [ ] **Fast path for simple commands**: Avoid fork when possible
+- [ ] **Builtin preference**: Builtins vs external commands
+- [ ] **String interning**: For common strings
 
-### 6.2 Builtin Optimization
-- [ ] Fast path for simple commands
-- [ ] Avoid fork for builtins when possible
-- [ ] Optimized variable expansion
+### 5.3 Memory Management
+- [ ] **Arena allocation**: For parse trees
+- [ ] **Efficient environment storage**: Reduce copying
+- [ ] **String pooling**: For common variable names
 
-### 6.3 Memory Management
-- [ ] String interning for common strings
-- [ ] Arena allocation for parse trees
-- [ ] Efficient environment variable storage
+## Priority 6: Testing & Compliance
 
-## Priority 7: Testing & Compliance
+### 6.1 Comprehensive Test Suite
+- [ ] **Unit tests**: All modules at 80%+ coverage
+- [ ] **Integration tests**: End-to-end shell behavior
+- [ ] **Conformance tests**: POSIX test suite compatibility
+- [ ] **Performance tests**: Benchmark against dash
 
-### 7.1 Test Suite
-- [ ] Unit tests for all modules
-- [ ] Integration tests matching dash test suite
-- [ ] POSIX compliance tests
-- [ ] Performance benchmarks
+### 6.2 POSIX Compliance
+- [ ] **Pass POSIX test suite**: All required features
+- [ ] **Document deviations**: From POSIX standard
+- [ ] **Compatibility testing**: With existing dash scripts
 
-### 7.2 POSIX Compliance
-- [ ] Pass POSIX test suite
-- [ ] Implement all required features
-- [ ] Document deviations from standard
-
-### 7.3 Dash Compatibility
-- [ ] Test compatibility with existing dash scripts
-- [ ] Match dash behavior edge cases
-- [ ] Document differences from dash
+### 6.3 Dash Compatibility
+- [ ] **Behavior matching**: Edge cases and error messages
+- [ ] **Bug-for-bug compatibility**: Where appropriate
+- [ ] **Performance comparison**: Similar or better performance
 
 ## Implementation Strategy
 
-### Phase 1: Foundation
-1. Complete parser implementation
-2. Basic parameter expansion
-3. Arithmetic expansion
-4. Positional parameters
+### Phase 1: Foundation & Cleanup (Current)
+1. Clean up dead code and warnings
+2. Expand test coverage
+3. Fix known bugs
+4. Document current architecture
 
-### Phase 2: Scripting
-1. Compound commands
-2. Functions
-3. Here documents
-4. Additional builtins
+### Phase 2: Core Scripting Features
+1. Implement control structures (if, for, while, case)
+2. Add functions support
+3. Complete builtin command set
+4. Implement here documents
 
-### Phase 3: Job Control
+### Phase 3: Job Control & Advanced Features
 1. Job control infrastructure
 2. Signal handling
-3. Job control builtins
+3. History system
+4. Shell options
 
-### Phase 4: Advanced Features
-1. Arrays
-2. History
-3. Completion
-4. Performance optimizations
+### Phase 4: Polish & Optimization
+1. Performance optimization
+2. Memory management improvements
+3. Enhanced error messages
+4. Better cross-platform support
 
-### Phase 5: Polish & Testing
-1. Comprehensive test suite
-2. POSIX compliance
+### Phase 5: Compliance & Testing
+1. POSIX compliance testing
+2. Comprehensive test suite
 3. Performance benchmarking
-4. Documentation
+4. Documentation completion
 
 ## File Structure Changes
 
-### New Directories
-```
-src/modules/builtins/      # All builtin commands
-src/modules/control/       # Control structures
-src/modules/expansion/     # Expansion subsystems
-src/modules/jobs/         # Job control
-src/modules/history/      # Command history
-src/modules/test/         # Test framework
-```
+### Current Structure Issues
+1. **Dead code**: `grammar.rs`, `tokens.rs` unused
+2. **Builtin organization**: All builtins in `builtins.rs` - should be split
+3. **Expansion logic**: Spread across multiple files
 
-### Modified Files
-- `src/modules/parser.rs` - Complete rewrite
-- `src/modules/expansion.rs` - Major extension
-- `src/modules/shell.rs` - Enhanced with new features
-- `src/main.rs` - Updated initialization
+### Proposed New Structure
+```
+src/
+├── main.rs
+└── modules/
+    ├── shell.rs              # Main shell structure
+    ├── parser.rs             # Command parsing
+    ├── grammar.rs            # Shell grammar (to be implemented)
+    ├── tokens.rs             # Token definitions (to be implemented)
+    ├── expansion/            # All expansion types
+    │   ├── mod.rs
+    │   ├── variable.rs       # $VAR expansion
+    │   ├── param.rs          # ${...} expansion
+    │   ├── arithmetic.rs     # $((...)) expansion
+    │   └── command.rs        # $(...) expansion
+    ├── builtins/             # Builtin commands
+    │   ├── mod.rs
+    │   ├── cd.rs
+    │   ├── echo.rs
+    │   └── ... (one file per builtin)
+    ├── control/              # Control structures
+    │   ├── mod.rs
+    │   ├── if.rs
+    │   ├── for.rs
+    │   └── ...
+    ├── jobs/                 # Job control
+    │   ├── mod.rs
+    │   ├── jobtable.rs
+    │   └── signals.rs
+    ├── redirection.rs        # Redirections
+    ├── pipeline.rs           # Pipelines
+    ├── functions.rs          # Functions
+    ├── history.rs            # Command history
+    └── options.rs            # Shell options
+```
 
 ## Testing Approach
 
-1. **Unit Tests**: Each module has comprehensive unit tests
-2. **Integration Tests**: Test shell behavior as a whole
-3. **Compatibility Tests**: Compare output with dash
-4. **Performance Tests**: Benchmark against dash
-5. **Fuzz Testing**: Random input testing
-
-## Documentation
-
-1. **User Manual**: Complete documentation of all features
-2. **Developer Guide**: Architecture and extension guide
-3. **API Documentation**: Rustdoc for all public APIs
-4. **Migration Guide**: From dash to rs-dash
+1. **Unit Tests**: Each module independently testable
+2. **Integration Tests**: Full shell behavior testing
+3. **Conformance Tests**: POSIX standard compliance
+4. **Performance Tests**: Benchmarking against dash
+5. **Fuzz Testing**: Random input testing for stability
 
 ## Success Metrics
 
 1. **Feature Parity**: 100% of dash features implemented
 2. **POSIX Compliance**: Pass POSIX test suite
 3. **Performance**: Comparable or better than dash
-4. **Memory Safety**: Zero unsafe code where possible
+4. **Memory Safety**: Minimal unsafe code
 5. **Code Quality**: High test coverage, clean architecture
 
 ## Risks & Mitigations
 
-1. **Complexity Risk**: Break into manageable chunks
-2. **Performance Risk**: Profile and optimize iteratively
-3. **Compatibility Risk**: Test extensively with existing scripts
-4. **Maintenance Risk**: Clean architecture, good documentation
-
-## Contributing Guidelines
-
-1. **Code Style**: Follow Rustfmt and Clippy
-2. **Testing**: Write tests for new features
-3. **Documentation**: Document public APIs
-4. **Performance**: Profile changes affecting performance
-5. **Compatibility**: Maintain dash compatibility
+1. **Complexity Risk**: Break into manageable chunks, focus on core features first
+2. **Performance Risk**: Profile early and often, optimize bottlenecks
+3. **Compatibility Risk**: Test with existing scripts, match dash behavior
+4. **Maintenance Risk**: Clean architecture, good documentation, comprehensive tests
 
 ## References
 
-1. `../c-dash/` - Original dashv0.5.3 source code
+1. `../c-dash/` - Original dash v0.5.3 source code
 2. POSIX Shell Standard (IEEE Std 1003.1-2017)
 3. dash man pages and documentation
 4. Existing test suites in `test/` directory
 
 ---
 
-*Last Updated: 2026-02-22*
-*Version: TODO v0.0.1
-
+*Last Updated: 2026-02-22 (Based on code review)*
+*Version: TODO v0.0.2*
