@@ -86,6 +86,8 @@ impl<'a> Iterator for CommandSplitter<'a> {
         let mut in_quote = false;
         let mut quote_char = '\0';
         let mut escape_next = false;
+        let mut paren_depth = 0;
+        let mut brace_depth = 0;
         
         while self.pos < self.input.len() {
             let c = match self.input.chars().nth(self.pos) {
@@ -105,7 +107,7 @@ impl<'a> Iterator for CommandSplitter<'a> {
                 continue;
             }
             
-            if (c == '\'' || c == '"') && !in_quote {
+            if (c == '\'' || c == '"') && !in_quote && paren_depth == 0 && brace_depth == 0 {
                 in_quote = true;
                 quote_char = c;
                 self.pos += 1;
@@ -120,26 +122,75 @@ impl<'a> Iterator for CommandSplitter<'a> {
             }
             
             if !in_quote {
-                // Check for separators
-                if c == ';' {
-                    let cmd = &self.input[start..self.pos].trim();
-                    self.pos += 1; // Skip the separator
-                    return Some((cmd, Some(';')));
-                } else if c == '&' && self.pos + 1 < self.input.len() && 
-                          self.input.chars().nth(self.pos + 1) == Some('&') {
-                    let cmd = &self.input[start..self.pos].trim();
-                    self.pos += 2; // Skip "&&"
-                    return Some((cmd, Some('&')));
-                } else if c == '|' && self.pos + 1 < self.input.len() && 
-                          self.input.chars().nth(self.pos + 1) == Some('|') {
-                    let cmd = &self.input[start..self.pos].trim();
-                    self.pos += 2; // Skip "||"
-                    return Some((cmd, Some('|')));
-                } else if c == '|' {
-                    // Single pipe - handled at higher level
-                    // Just treat as regular character for now
+                // Track parentheses for command substitution and subshells
+                if c == '(' {
+                    paren_depth += 1;
                     self.pos += 1;
                     continue;
+                } else if c == ')' && paren_depth > 0 {
+                    paren_depth -= 1;
+                    self.pos += 1;
+                    continue;
+                }
+                
+                // Track braces for parameter expansion
+                if c == '{' {
+                    brace_depth += 1;
+                    self.pos += 1;
+                    continue;
+                } else if c == '}' && brace_depth > 0 {
+                    brace_depth -= 1;
+                    self.pos += 1;
+                    continue;
+                }
+                
+                // Only check for separators when not inside parentheses or braces
+                if paren_depth == 0 && brace_depth == 0 {
+                    // Check for command separators
+                    if c == ';' {
+                        let cmd = &self.input[start..self.pos].trim();
+                        self.pos += 1; // Skip the separator
+                        return Some((cmd, Some(';')));
+                    }
+                    
+                    // Check for && and || only at word boundaries
+                    // We need to check if we're at a word boundary
+                    if c == '&' && self.pos + 1 < self.input.len() && 
+                       self.input.chars().nth(self.pos + 1) == Some('&') {
+                        // Check if we're at a word boundary (preceded by whitespace or start of string)
+                        let is_word_boundary = if start == self.pos {
+                            true // At start of command
+                        } else {
+                            let prev_char = self.input.chars().nth(self.pos - 1);
+                            prev_char.map(|ch| ch.is_whitespace()).unwrap_or(true)
+                        };
+                        
+                        if is_word_boundary {
+                            let cmd = &self.input[start..self.pos].trim();
+                            self.pos += 2; // Skip "&&"
+                            return Some((cmd, Some('&')));
+                        }
+                    }
+                    
+                    if c == '|' && self.pos + 1 < self.input.len() && 
+                       self.input.chars().nth(self.pos + 1) == Some('|') {
+                        // Check if we're at a word boundary
+                        let is_word_boundary = if start == self.pos {
+                            true // At start of command
+                        } else {
+                            let prev_char = self.input.chars().nth(self.pos - 1);
+                            prev_char.map(|ch| ch.is_whitespace()).unwrap_or(true)
+                        };
+                        
+                        if is_word_boundary {
+                            let cmd = &self.input[start..self.pos].trim();
+                            self.pos += 2; // Skip "||"
+                            return Some((cmd, Some('|')));
+                        }
+                    }
+                    
+                    // Single pipe - handled at higher level
+                    // Just treat as regular character for now
                 }
             }
             

@@ -130,33 +130,247 @@ impl Shell {
             return pipeline::execute_pipeline(self, &processed_line);
         }
         
-        // Handle regular commands with separators
-        let mut commands = parser::split_commands(&processed_line);
+        // Parse and execute commands with proper operator precedence
+        // ; has lowest precedence, then && and || have same precedence
+        self.execute_commands_with_precedence(&processed_line)
+    }
+    
+    /// Execute commands with proper operator precedence
+    fn execute_commands_with_precedence(&mut self, line: &str) -> i32 {
+        // First split by ; (lowest precedence)
+        let commands = self.split_by_separator(line, ';');
+        // println!("DEBUG: split commands: {:?}", commands); // DEBUG
         let mut last_status = 0;
         
-        while let Some((cmd_str, sep)) = commands.next() {
-            let status = self.execute_single_command(cmd_str);
-            last_status = status;
-            
-            // Check if we should continue based on separator
-            match sep {
-                Some(';') => continue, // Always continue
-                Some('&') => { // && operator
-                    if status != 0 {
-                        break; // Stop if command failed
-                    }
-                }
-                Some('|') => { // || operator (simplified)
-                    if status == 0 {
-                        break; // Stop if command succeeded
-                    }
-                }
-                None => break, // No more commands
-                _ => continue,
+        for cmd in commands {
+            if cmd.trim().is_empty() {
+                continue;
             }
+            
+            // Now handle && and || within this command
+            last_status = self.execute_logical_expression(cmd.trim());
         }
         
         last_status
+    }
+    
+    /// Split a line by a separator, respecting quotes and parentheses
+    fn split_by_separator(&self, line: &str, separator: char) -> Vec<String> {
+        let mut result = Vec::new();
+        let mut current = String::new();
+        let mut in_quote = false;
+        let mut quote_char = '\0';
+        let mut escape_next = false;
+        let mut paren_depth = 0;
+        let mut brace_depth = 0;
+        
+        for c in line.chars() {
+            if escape_next {
+                current.push(c);
+                escape_next = false;
+                continue;
+            }
+            
+            if c == '\\' {
+                escape_next = true;
+                current.push(c);
+                continue;
+            }
+            
+            if (c == '\'' || c == '"') && !in_quote && paren_depth == 0 && brace_depth == 0 {
+                in_quote = true;
+                quote_char = c;
+                current.push(c);
+                continue;
+            }
+            
+            if c == quote_char && in_quote {
+                in_quote = false;
+                quote_char = '\0';
+                current.push(c);
+                continue;
+            }
+            
+            if !in_quote {
+                // Track parentheses
+                if c == '(' {
+                    paren_depth += 1;
+                } else if c == ')' {
+                    paren_depth -= 1;
+                }
+                
+                // Track braces
+                if c == '{' {
+                    brace_depth += 1;
+                } else if c == '}' {
+                    brace_depth -= 1;
+                }
+                
+                // Check for separator
+                if c == separator && paren_depth == 0 && brace_depth == 0 {
+                    result.push(current.trim().to_string());
+                    current.clear();
+                    continue;
+                }
+            }
+            
+            current.push(c);
+        }
+        
+        if !current.trim().is_empty() {
+            result.push(current.trim().to_string());
+        }
+        
+        result
+    }
+    
+    /// Execute a logical expression with && and ||
+    fn execute_logical_expression(&mut self, expr: &str) -> i32 {
+        // Split by && first (higher precedence than || in some shells, but same in dash)
+        // Actually, && and || have same precedence and are left-associative in dash
+        // So we need to parse them properly
+        
+        // Simple approach: split by || first, then by && within each part
+        let or_parts = self.split_by_logical_operator(expr, "||");
+        let mut last_status = 0;
+        
+        for or_part in or_parts {
+            if or_part.trim().is_empty() {
+                continue;
+            }
+            
+            // Split by &&
+            let and_parts = self.split_by_logical_operator(&or_part, "&&");
+            let mut and_status = 0;
+            let mut all_succeeded = true;
+            
+            for and_part in and_parts {
+                if and_part.trim().is_empty() {
+                    continue;
+                }
+                
+                // Execute this part
+                and_status = self.execute_single_command(and_part.trim());
+                
+                // If this is an && chain and any part fails, stop
+                if and_status != 0 {
+                    all_succeeded = false;
+                    break;
+                }
+            }
+            
+            last_status = if all_succeeded { 0 } else { and_status };
+            
+            // If this OR part succeeded (all its AND parts succeeded), stop
+            if last_status == 0 {
+                break;
+            }
+        }
+        
+        // Set last exit status
+        self.last_exit_status = last_status;
+        last_status
+    }
+    
+    /// Split by logical operator, respecting quotes and parentheses
+    fn split_by_logical_operator(&self, expr: &str, operator: &str) -> Vec<String> {
+        let mut result = Vec::new();
+        let mut current = String::new();
+        let mut in_quote = false;
+        let mut quote_char = '\0';
+        let mut escape_next = false;
+        let mut paren_depth = 0;
+        let mut brace_depth = 0;
+        let mut i = 0;
+        let chars: Vec<char> = expr.chars().collect();
+        let op_chars: Vec<char> = operator.chars().collect();
+        
+        while i < chars.len() {
+            let c = chars[i];
+            
+            if escape_next {
+                current.push(c);
+                escape_next = false;
+                i += 1;
+                continue;
+            }
+            
+            if c == '\\' {
+                escape_next = true;
+                current.push(c);
+                i += 1;
+                continue;
+            }
+            
+            if (c == '\'' || c == '"') && !in_quote && paren_depth == 0 && brace_depth == 0 {
+                in_quote = true;
+                quote_char = c;
+                current.push(c);
+                i += 1;
+                continue;
+            }
+            
+            if c == quote_char && in_quote {
+                in_quote = false;
+                quote_char = '\0';
+                current.push(c);
+                i += 1;
+                continue;
+            }
+            
+            if !in_quote {
+                // Track parentheses
+                if c == '(' {
+                    paren_depth += 1;
+                } else if c == ')' {
+                    paren_depth -= 1;
+                }
+                
+                // Track braces
+                if c == '{' {
+                    brace_depth += 1;
+                } else if c == '}' {
+                    brace_depth -= 1;
+                }
+                
+                // Check for operator
+                if paren_depth == 0 && brace_depth == 0 && i + op_chars.len() <= chars.len() {
+                    let slice: String = chars[i..i + op_chars.len()].iter().collect();
+                    if slice == operator {
+                        // Check if it's really the operator (not part of a word)
+                        let before_ok = if i == 0 {
+                            true
+                        } else {
+                            let before = chars[i - 1];
+                            before.is_whitespace()
+                        };
+                        
+                        let after_ok = if i + op_chars.len() >= chars.len() {
+                            true
+                        } else {
+                            let after = chars[i + op_chars.len()];
+                            after.is_whitespace() || after == ';'
+                        };
+                        
+                        if before_ok && after_ok {
+                            result.push(current.trim().to_string());
+                            current.clear();
+                            i += op_chars.len();
+                            continue;
+                        }
+                    }
+                }
+            }
+            
+            current.push(c);
+            i += 1;
+        }
+        
+        if !current.trim().is_empty() {
+            result.push(current.trim().to_string());
+        }
+        
+        result
     }
     
     /// Execute a single command (no separators, no pipes)
@@ -199,28 +413,148 @@ impl Shell {
             return status;
         }
         
-        // Check for variable assignment
-        if let Some(equals_pos) = cmd_str.find('=') {
-            // Check if it's a valid variable assignment (no spaces before =)
-            let before_equals = &cmd_str[..equals_pos];
-            if !before_equals.contains(char::is_whitespace) && 
-               !before_equals.is_empty() &&
-               before_equals.chars().next().unwrap().is_alphabetic() {
-                // It's a variable assignment
-                let var_name = before_equals.to_string();
-                let var_value = cmd_str[equals_pos + 1..].to_string();
-                self.env_vars.insert(var_name, var_value);
-                let status = 0;
-                self.last_exit_status = status;
-                return status;
+        // Check for variable assignments at the beginning
+        // In dash, variable assignments can appear before a command
+        // Example: VAR1=value1 VAR2=value2 command args
+        let mut var_assignments = Vec::new();
+        let mut remaining_cmd = cmd_str;
+        
+        // Parse variable assignments
+        loop {
+            let trimmed = remaining_cmd.trim_start();
+            if trimmed.is_empty() {
+                break;
+            }
+            
+            // Find the first '=' that's not inside quotes
+            let mut equals_pos = None;
+            let mut in_quote = false;
+            let mut quote_char = '\0';
+            let mut escape_next = false;
+            
+            for (i, c) in trimmed.chars().enumerate() {
+                if escape_next {
+                    escape_next = false;
+                    continue;
+                }
+                
+                match c {
+                    '\\' => {
+                        escape_next = true;
+                    }
+                    '\'' | '"' => {
+                        if !in_quote {
+                            in_quote = true;
+                            quote_char = c;
+                        } else if c == quote_char {
+                            in_quote = false;
+                            quote_char = '\0';
+                        }
+                    }
+                    '=' => {
+                        if !in_quote {
+                            equals_pos = Some(i);
+                            break;
+                        }
+                    }
+                    ' ' | '\t' | '\n' => {
+                        if !in_quote && equals_pos.is_none() {
+                            // Found whitespace before '=', not a variable assignment
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            
+            if let Some(pos) = equals_pos {
+                // Check if the part before '=' is a valid variable name
+                let before_equals = &trimmed[..pos];
+                if !before_equals.is_empty() && 
+                   before_equals.chars().next().unwrap().is_alphabetic() &&
+                   before_equals.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                    
+                    // It's a variable assignment
+                    // Find the end of the value
+                    let after_equals = &trimmed[pos + 1..];
+                    let mut value_end = 0;
+                    let mut in_quote = false;
+                    let mut quote_char = '\0';
+                    let mut escape_next = false;
+                    
+                    for (i, c) in after_equals.chars().enumerate() {
+                        if escape_next {
+                            escape_next = false;
+                            continue;
+                        }
+                        
+                        match c {
+                            '\\' => {
+                                escape_next = true;
+                            }
+                            '\'' | '"' => {
+                                if !in_quote {
+                                    in_quote = true;
+                                    quote_char = c;
+                                } else if c == quote_char {
+                                    in_quote = false;
+                                    quote_char = '\0';
+                                }
+                            }
+                            ' ' | '\t' | '\n' => {
+                                if !in_quote {
+                                    value_end = i;
+                                    break;
+                                }
+                            }
+                            _ => {}
+                        }
+                        
+                        value_end = i + 1;
+                    }
+                    
+                    let var_name = before_equals.to_string();
+                    let var_value = if value_end > 0 {
+                        &after_equals[..value_end]
+                    } else {
+                        after_equals
+                    }.to_string();
+                    
+                    var_assignments.push((var_name, var_value));
+                    
+                    // Move to next part
+                    let next_start = pos + 1 + value_end;
+                    if next_start >= trimmed.len() {
+                        remaining_cmd = "";
+                        break;
+                    }
+                    remaining_cmd = &trimmed[next_start..].trim_start();
+                } else {
+                    // Not a valid variable assignment, stop parsing
+                    break;
+                }
+            } else {
+                // No '=' found, stop parsing variable assignments
+                break;
             }
         }
         
-        let (cmd, args) = parser::parse_command(cmd_str);
+        // Apply variable assignments
+        for (var_name, var_value) in var_assignments {
+            self.env_vars.insert(var_name, var_value);
+        }
+        
+        // If there are no more commands after variable assignments, return success
+        if remaining_cmd.trim().is_empty() {
+            self.last_exit_status = 0;
+            return 0;
+        }
+        
+        // Parse the remaining command
+        let (cmd, args) = parser::parse_command(remaining_cmd);
         if cmd.is_empty() {
-            let status = 0;
-            self.last_exit_status = status;
-            return status;
+            self.last_exit_status = 0;
+            return 0;
         }
         
         // Expand variables in arguments
@@ -451,3 +785,4 @@ impl Shell {
         }
     }
 }
+

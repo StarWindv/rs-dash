@@ -2,9 +2,6 @@
 //! Supports <(command) and >(command) syntax
 
 use crate::modules::shell::Shell;
-use std::fs;
-use std::io::Write;
-use std::process::Command;
 
 /// Check if a command contains process substitution
 pub fn has_process_substitution(cmd: &str) -> bool {
@@ -45,7 +42,7 @@ pub fn execute_process_substitution(shell: &mut Shell, cmd: &str) -> Result<Stri
     while let Some(start) = result.find(">(") {
         if let Some(end) = find_matching_paren(&result[start..]) {
             let full_match = &result[start..start+end];
-            let inner_cmd = &full_match[2..full_match.len()-1]; // Remove >( and )
+            let _inner_cmd = &full_match[2..full_match.len()-1]; // Remove >( and )
             
             // For >(command), we need to create a pipe for writing
             // This is more complex and requires async handling

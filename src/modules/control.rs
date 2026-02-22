@@ -429,6 +429,120 @@ impl ControlParser {
         
         Ok(ControlStructure::new_until(condition, body_commands))
     }
+    
+    /// Parse a case statement from tokens
+    pub fn parse_case(tokens: &[String]) -> Result<ControlStructure, String> {
+        // TODO: Implement full case statement parsing
+        // For now, return a simple implementation
+        if tokens.len() < 4 {
+            return Err("Invalid case statement: too few tokens".to_string());
+        }
+        
+        // Expect format: case WORD in PATTERN) COMMANDS;; esac
+        if tokens[0] != "case" {
+            return Err("Expected 'case' keyword".to_string());
+        }
+        
+        let word = tokens[1].clone();
+        
+        if tokens.len() < 3 || tokens[2] != "in" {
+            return Err("Expected 'in' keyword".to_string());
+        }
+        
+        let mut patterns = Vec::new();
+        let mut pos = 3;
+        
+        while pos < tokens.len() && tokens[pos] != "esac" {
+            // Parse pattern
+            let pattern = tokens[pos].clone();
+            pos += 1;
+            
+            if pos >= tokens.len() || tokens[pos] != ")" {
+                return Err("Expected ')' after pattern".to_string());
+            }
+            pos += 1;
+            
+            // Parse commands until ;;
+            let mut commands = Vec::new();
+            while pos < tokens.len() && tokens[pos] != ";;" && tokens[pos] != "esac" {
+                commands.push(tokens[pos].clone());
+                pos += 1;
+            }
+            
+            patterns.push(CasePattern { pattern, commands });
+            
+            // Skip ;;
+            if pos < tokens.len() && tokens[pos] == ";;" {
+                pos += 1;
+            }
+        }
+        
+        if pos >= tokens.len() || tokens[pos] != "esac" {
+            return Err("Invalid case statement: missing 'esac'".to_string());
+        }
+        
+        Ok(ControlStructure::new_case(word, patterns))
+    }
+    
+    /// Parse a select statement from tokens
+    pub fn parse_select(tokens: &[String]) -> Result<ControlStructure, String> {
+        // TODO: Implement full select statement parsing
+        // For now, return a placeholder implementation
+        if tokens.len() < 4 {
+            return Err("Invalid select statement: too few tokens".to_string());
+        }
+        
+        // Expect format: select VAR in ITEMS; do COMMANDS; done
+        if tokens[0] != "select" {
+            return Err("Expected 'select' keyword".to_string());
+        }
+        
+        let variable = tokens[1].clone();
+        
+        if tokens.len() < 3 || tokens[2] != "in" {
+            return Err("Expected 'in' keyword".to_string());
+        }
+        
+        let mut items = Vec::new();
+        let mut pos = 3;
+        
+        // Collect items until ";" or "do"
+        while pos < tokens.len() && tokens[pos] != ";" && tokens[pos] != "do" {
+            items.push(tokens[pos].clone());
+            pos += 1;
+        }
+        
+        if pos >= tokens.len() {
+            return Err("Invalid select statement: missing 'do'".to_string());
+        }
+        
+        // Skip ";" if present
+        if tokens[pos] == ";" {
+            pos += 1;
+        }
+        
+        if pos >= tokens.len() || tokens[pos] != "do" {
+            return Err("Expected 'do' keyword".to_string());
+        }
+        
+        pos += 1;
+        let body_start = pos;
+        
+        // Find "done"
+        while pos < tokens.len() && tokens[pos] != "done" {
+            pos += 1;
+        }
+        
+        if pos >= tokens.len() {
+            return Err("Invalid select statement: missing 'done'".to_string());
+        }
+        
+        let body_str = tokens[body_start..pos].join(" ");
+        let body_commands = vec![body_str];
+        
+        // Create a for loop as a placeholder (select is similar to for but with interactive selection)
+        Ok(ControlStructure::new_for(variable, items, body_commands))
+    }
 }
 
 /// Executor for control structures
@@ -579,7 +693,7 @@ impl ControlExecutor {
     }
     
     /// Execute select statement
-    fn execute_select(shell: &mut Shell, _control: &ControlStructure) -> i32 {
+    fn execute_select(_shell: &mut Shell, _control: &ControlStructure) -> i32 {
         // TODO: Implement select statement
         // For now, just return 0
         0
