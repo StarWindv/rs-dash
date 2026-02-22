@@ -14,6 +14,7 @@ pub mod redirection;
 pub mod shell;
 pub mod subshell;
 pub mod tokens;
+pub mod utils;
 
 #[cfg(test)]
 mod control_tests;

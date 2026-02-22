@@ -14,6 +14,7 @@ use crate::modules::pipeline;
 use crate::modules::process_substitution;
 use crate::modules::redirection;
 use crate::modules::subshell;
+use crate::modules::utils;
 
 /// Compile-time constants
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -470,9 +471,7 @@ impl Shell {
             if let Some(pos) = equals_pos {
                 // Check if the part before '=' is a valid variable name
                 let before_equals = &trimmed[..pos];
-                if !before_equals.is_empty() && 
-                   before_equals.chars().next().unwrap().is_alphabetic() &&
-                   before_equals.chars().all(|c| c.is_alphanumeric() || c == '_') {
+                if utils::is_valid_var_name(before_equals) {
                     
                     // It's a variable assignment
                     // Find the end of the value
@@ -518,7 +517,10 @@ impl Shell {
                         &after_equals[..value_end]
                     } else {
                         after_equals
-                    }.to_string();
+                    };
+                    
+                    // Remove quotes from the value
+                    let var_value = utils::remove_quotes(var_value);
                     
                     var_assignments.push((var_name, var_value));
                     
@@ -785,4 +787,3 @@ impl Shell {
         }
     }
 }
-
