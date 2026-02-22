@@ -1,8 +1,5 @@
 //! pwd builtin command
 
-use std::env;
-use std::fs;
-use std::path::PathBuf;
 use crate::modules::shell::Shell;
 use super::Builtin;
 
@@ -40,46 +37,15 @@ impl PwdBuiltin {
     /// Get current directory based on mode
     fn get_current_dir(&self, shell: &Shell, use_physical: bool) -> String {
         if use_physical {
-            // Physical mode: get canonical path
-            match fs::canonicalize(&shell.current_dir) {
-                Ok(path) => {
-                    // On Windows, canonicalize returns paths with \\?\ prefix
-                    // Remove it for user-friendly display
-                    self.normalize_canonical_path(&path)
-                }
-                Err(_) => {
-                    // Fallback to trying to get canonical path from current directory
-                    match env::current_dir() {
-                        Ok(path) => match fs::canonicalize(path) {
-                            Ok(canonical) => self.normalize_canonical_path(&canonical),
-                            Err(_) => shell.current_dir.clone(),
-                        },
-                        Err(_) => shell.current_dir.clone(),
-                    }
-                }
-            }
+            // Physical mode: get physical directory
+            shell.physical_dir.clone()
         } else {
-            // Logical mode: use stored current directory
+            // Logical mode: get logical directory
             shell.current_dir.clone()
         }
     }
     
-    /// Normalize canonical path (remove Windows \\?\ prefix if present)
-    fn normalize_canonical_path(&self, path: &PathBuf) -> String {
-        let path_str = path.to_string_lossy().to_string();
-        
-        // On Windows, canonicalize returns paths with \\?\ prefix
-        // Remove it for user-friendly display
-        #[cfg(windows)]
-        {
-            if path_str.starts_with(r"\\?\") {
-                // Remove the \\?\ prefix
-                return path_str[4..].to_string();
-            }
-        }
-        
-        path_str
-    }
+    
 }
 
 impl Builtin for PwdBuiltin {

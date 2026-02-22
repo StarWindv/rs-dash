@@ -22,8 +22,12 @@ const NAME: &str = env!("CARGO_PKG_NAME");
 
 /// Main shell structure
 pub struct Shell {
-    /// Current working directory
+    /// Current working directory (logical path)
     pub current_dir: String,
+    /// Physical working directory (canonical path)
+    pub physical_dir: String,
+    /// Current cd mode: true for physical (-P), false for logical (-L, default)
+    pub physical_mode: bool,
     /// Exit status of last command
     pub last_exit_status: i32,
     /// Is interactive mode
@@ -50,6 +54,28 @@ impl Shell {
             .to_string_lossy()
             .to_string();
         
+        // Get physical directory
+        let physical_dir = match std::fs::canonicalize(&current_dir) {
+            Ok(path) => {
+                // On Windows, canonicalize returns paths with \\?\ prefix
+                // Remove it for user-friendly display
+                let path_str = path.to_string_lossy().to_string();
+                #[cfg(windows)]
+                {
+                    if path_str.starts_with(r"\\?\") {
+                        path_str[4..].to_string()
+                    } else {
+                        path_str
+                    }
+                }
+                #[cfg(not(windows))]
+                {
+                    path_str
+                }
+            }
+            Err(_) => current_dir.clone(),
+        };
+        
         // Initialize environment variables
         let mut env_vars = HashMap::new();
         for (key, value) in env::vars() {
@@ -66,6 +92,8 @@ impl Shell {
         
         Self {
             current_dir,
+            physical_dir,
+            physical_mode: false, // Default to logical mode (-L)
             last_exit_status: 0,
             interactive: false,
             env_vars,
