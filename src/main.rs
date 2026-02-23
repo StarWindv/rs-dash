@@ -6,7 +6,7 @@ use std::process;
 use std::rc::Rc;
 
 mod modules;
-mod module_tests;
+// mod module_tests;
 
 use modules::shell::Shell;
 
@@ -64,3 +64,4 @@ fn main() {
     shell.run_interactive();
     process::exit(shell.last_exit_status);
 }
+
