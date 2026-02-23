@@ -19,28 +19,35 @@ pub fn parse_redirections(cmd: &str, args: &[String]) -> (String, Vec<String>, V
     // The command name should stay as is
     let current_cmd = cmd.to_string();
     
-    for arg in args {
-        if arg.starts_with(">>") {
-            // Append redirection
-            let filename = if arg.len() > 2 { &arg[2..] } else { "" };
-            if !filename.is_empty() {
-                redirects.push(Redirection::Append(filename.to_string()));
-            }
-        } else if arg.starts_with('>') {
-            // Output redirection
-            let filename = if arg.len() > 1 { &arg[1..] } else { "" };
-            if !filename.is_empty() {
-                redirects.push(Redirection::Output(filename.to_string()));
-            }
-        } else if arg.starts_with('<') {
-            // Input redirection
-            let filename = if arg.len() > 1 { &arg[1..] } else { "" };
-            if !filename.is_empty() {
-                redirects.push(Redirection::Input(filename.to_string()));
+    let mut i = 0;
+    while i < args.len() {
+        let arg = &args[i];
+        
+        // Check for redirection operators
+        if arg == ">" || arg == ">>" || arg == "<" {
+            // This is a redirection operator
+            // Get the filename from the next argument
+            if i + 1 < args.len() {
+                let filename = &args[i + 1];
+                match arg.as_str() {
+                    ">" => redirects.push(Redirection::Output(filename.clone())),
+                    ">>" => redirects.push(Redirection::Append(filename.clone())),
+                    "<" => redirects.push(Redirection::Input(filename.clone())),
+                    _ => new_args.push(arg.clone()),
+                }
+                i += 2; // Skip operator and filename
+                continue;
+            } else {
+                // Missing filename for redirection
+                eprintln!("syntax error: missing filename for redirection");
+                // Still add the operator as an argument (will cause error when executed)
+                new_args.push(arg.clone());
             }
         } else {
             new_args.push(arg.clone());
         }
+        
+        i += 1;
     }
     
     (current_cmd, new_args, redirects)
@@ -118,6 +125,9 @@ pub fn execute_with_redirections(
         }
     }
     
+    // Debug: print command being executed
+    // println!("DEBUG: Executing command: {} with args: {:?}", path, args);
+    
     // Execute command
     match command.spawn() {
         Ok(mut child) => {
@@ -150,3 +160,4 @@ pub fn execute_with_redirections(
         }
     }
 }
+

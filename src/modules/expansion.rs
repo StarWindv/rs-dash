@@ -6,6 +6,7 @@ use crate::modules::arithmetic;
 
 /// Expand variables and command substitutions in a string
 pub fn expand_variables(shell: &mut Shell, input: &str) -> String {
+    
     let mut result = String::new();
     let mut chars = input.chars().peekable();
     

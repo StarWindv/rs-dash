@@ -255,16 +255,18 @@ impl Shell {
             }
             
             if (c == '\'' || c == '"') && !in_quote && paren_depth == 0 && brace_depth == 0 {
-                // Start of quote - don't add quote character to output
+                // Start of quote - add quote character to output
                 in_quote = true;
                 quote_char = c;
+                current.push(c);
                 continue;
             }
             
             if c == quote_char && in_quote {
-                // End of quote - don't add quote character to output
+                // End of quote - add quote character to output
                 in_quote = false;
                 quote_char = '\0';
+                current.push(c);
                 continue;
             }
             
@@ -432,17 +434,19 @@ impl Shell {
             }
             
             if (c == '\'' || c == '"') && !in_quote && paren_depth == 0 && brace_depth == 0 {
-                // Start of quote - don't add quote character to output
+                // Start of quote - add quote character to output
                 in_quote = true;
                 quote_char = c;
+                current.push(c);
                 i += 1;
                 continue;
             }
             
             if c == quote_char && in_quote {
-                // End of quote - don't add quote character to output
+                // End of quote - add quote character to output
                 in_quote = false;
                 quote_char = '\0';
+                current.push(c);
                 i += 1;
                 continue;
             }
@@ -612,10 +616,12 @@ impl Shell {
                     // It's a variable assignment
                     // Find the end of the value
                     let after_equals = &trimmed[pos + 1..];
-                    let mut value_end = 0;
+                    let mut value_end = after_equals.len();
                     let mut in_quote = false;
                     let mut quote_char = '\0';
                     let mut escape_next = false;
+                    let mut paren_depth = 0;
+                    let mut brace_depth = 0;
                     
                     for (i, c) in after_equals.chars().enumerate() {
                         if escape_next {
@@ -636,20 +642,38 @@ impl Shell {
                                     quote_char = '\0';
                                 }
                             }
-                            ' ' | '\t' | '\n' => {
+                            '(' => {
                                 if !in_quote {
+                                    paren_depth += 1;
+                                }
+                            }
+                            ')' => {
+                                if !in_quote && paren_depth > 0 {
+                                    paren_depth -= 1;
+                                }
+                            }
+                            '{' => {
+                                if !in_quote {
+                                    brace_depth += 1;
+                                }
+                            }
+                            '}' => {
+                                if !in_quote && brace_depth > 0 {
+                                    brace_depth -= 1;
+                                }
+                            }
+                            ' ' | '\t' | '\n' => {
+                                if !in_quote && paren_depth == 0 && brace_depth == 0 {
                                     value_end = i;
                                     break;
                                 }
                             }
                             _ => {}
                         }
-                        
-                        value_end = i + 1;
                     }
                     
                     let var_name = before_equals.to_string();
-                    let var_value = if value_end > 0 {
+                    let var_value = if value_end < after_equals.len() {
                         &after_equals[..value_end]
                     } else {
                         after_equals
@@ -694,6 +718,11 @@ impl Shell {
             self.last_exit_status = 0;
             return 0;
         }
+        
+        // Debug: print parsed command and args
+        // println!("DEBUG execute_single_command: parsed cmd='{}'", cmd);
+        // println!("DEBUG execute_single_command: parsed args={:?}", args);
+        // println!("DEBUG execute_single_command: remaining_cmd='{}'", remaining_cmd);
         
         // Expand variables in arguments
         let args = args.iter()

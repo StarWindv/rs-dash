@@ -69,10 +69,12 @@ pub fn parse_command(line: &str) -> (String, Vec<String>) {
             // Start of quote - don't add quote character to output
             in_quote = true;
             quote_char = c;
+            continue; // Skip the quote character
         } else if c == quote_char && in_quote {
             // End of quote - don't add quote character to output
             in_quote = false;
             quote_char = '\0';
+            continue; // Skip the quote character
         } else if c == '$' {
             // Check for command substitution start
             current.push(c);
