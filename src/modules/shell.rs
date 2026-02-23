@@ -708,10 +708,19 @@ impl Shell {
             return Some(cmd.to_string());
         }
         
-        // Get PATH from environment variables
-        let path_var = self.env_vars.get("PATH")
-            .cloned()
-            .unwrap_or_default();
+        // Get PATH from environment variables - handle case-insensitive on Windows
+        let path_var = if cfg!(windows) {
+            // On Windows, try "Path" then "PATH"
+            self.env_vars.get("Path")
+                .or_else(|| self.env_vars.get("PATH"))
+                .cloned()
+                .unwrap_or_default()
+        } else {
+            // On Unix, use "PATH"
+            self.env_vars.get("PATH")
+                .cloned()
+                .unwrap_or_default()
+        };
         
         // Search in each directory
         for dir in path_var.split(if cfg!(windows) { ';' } else { ':' }) {

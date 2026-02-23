@@ -16,20 +16,10 @@ pub fn parse_redirections(cmd: &str, args: &[String]) -> (String, Vec<String>, V
     let mut new_args = Vec::new();
     let mut redirects = Vec::new();
     
-    // Start with the command itself
-    let mut current_cmd = cmd.to_string();
-    let mut in_args = false;
+    // The command name should stay as is
+    let current_cmd = cmd.to_string();
     
     for arg in args {
-        if !in_args {
-            // First non-redirection argument becomes part of command for external commands
-            if !arg.starts_with('>') && !arg.starts_with('<') {
-                current_cmd = arg.clone();
-                in_args = true;
-                continue;
-            }
-        }
-        
         if arg.starts_with(">>") {
             // Append redirection
             let filename = if arg.len() > 2 { &arg[2..] } else { "" };

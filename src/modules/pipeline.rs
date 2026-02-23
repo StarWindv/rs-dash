@@ -265,10 +265,16 @@ impl PipelineContext {
                 // Store reader for the next command
                 // We need to create a new PipePair with just the reader
                 // The writer will be dropped when the command finishes
+                let (dummy_reader, dummy_writer) = match pipe() {
+                    Ok((r, w)) => (r, w),
+                    Err(e) => return Err(format!("Failed to create dummy pipe: {}", e)),
+                };
                 self.pipe_pairs.insert(pipe_index, PipePair {
                     reader,
-                    writer: pipe()?.1, // Dummy writer that will be dropped
+                    writer: dummy_writer, // Dummy writer that will be dropped
                 });
+                // We don't need the dummy reader
+                drop(dummy_reader);
             } else {
                 return Err("Pipe index out of bounds".to_string());
             }
