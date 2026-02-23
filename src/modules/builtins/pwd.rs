@@ -87,4 +87,19 @@ impl Builtin for PwdBuiltin {
         // In a pipeline, output would be passed to next command
         0
     }
+    
+    fn execute_and_capture(&self, shell: &mut Shell, args: &[String]) -> (i32, String) {
+        // Parse options
+        let (args_start, use_physical) = self.parse_options(args);
+        
+        // Check for extra arguments
+        if args_start < args.len() {
+            eprintln!("pwd: too many arguments");
+            return (1, String::new());
+        }
+        
+        // Get current directory
+        let current_dir = self.get_current_dir(shell, use_physical);
+        (0, format!("{}\n", current_dir))
+    }
 }

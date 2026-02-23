@@ -55,6 +55,18 @@ impl BuiltinRegistry {
         // Now execute with the builtin reference
         builtin.execute_in_pipeline(shell, args, is_last)
     }
+    
+    /// Execute a builtin command and capture its output
+    pub fn execute_builtin_and_capture(&self, shell: &mut Shell, cmd: &str, args: &[String]) -> (i32, String) {
+        // Get the builtin before we need to mutably borrow shell
+        let builtin = match self.get_builtin(cmd) {
+            Some(b) => b,
+            None => return (127, String::new()),
+        };
+        
+        // Now execute with the builtin reference
+        builtin.execute_and_capture(shell, args)
+    }
 }
 
 impl Default for BuiltinRegistry {

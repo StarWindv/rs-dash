@@ -14,4 +14,8 @@ impl Builtin for FalseBuiltin {
     fn execute(&self, _shell: &mut Shell, _args: &[String]) -> i32 {
         1
     }
+    
+    fn execute_and_capture(&self, _shell: &mut Shell, _args: &[String]) -> (i32, String) {
+        (1, String::new())
+    }
 }

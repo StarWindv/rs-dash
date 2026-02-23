@@ -41,6 +41,13 @@ pub trait Builtin: Send + Sync {
         // For most builtins, this is the same as regular execution
         self.execute(shell, args)
     }
+    
+    /// Execute and capture output (for pipeline use)
+    fn execute_and_capture(&self, shell: &mut Shell, args: &[String]) -> (i32, String) {
+        // Default implementation: execute normally
+        let status = self.execute(shell, args);
+        (status, String::new())
+    }
 }
 
 /// Create and initialize the builtin registry with all builtins

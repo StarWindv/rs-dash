@@ -32,4 +32,9 @@ impl Builtin for EchoBuiltin {
         // In a real pipeline, output would be passed to next command
         0
     }
+    
+    fn execute_and_capture(&self, _shell: &mut Shell, args: &[String]) -> (i32, String) {
+        let output = args.join(" ");
+        (0, format!("{}\n", output))
+    }
 }

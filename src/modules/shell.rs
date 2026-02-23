@@ -153,12 +153,6 @@ impl Shell {
             }
         }
         
-        // Check for pipelines
-        if pipeline::has_pipeline(&processed_line) {
-            // Handle pipeline
-            return pipeline::execute_pipeline(self, &processed_line);
-        }
-        
         // Parse and execute commands with proper operator precedence
         // ; has lowest precedence, then && and || have same precedence
         self.execute_commands_with_precedence(&processed_line)
@@ -313,11 +307,7 @@ impl Shell {
     
     /// Execute a logical expression with && and ||
     fn execute_logical_expression(&mut self, expr: &str) -> i32 {
-        // Split by && first (higher precedence than || in some shells, but same in dash)
-        // Actually, && and || have same precedence and are left-associative in dash
-        // So we need to parse them properly
-        
-        // Simple approach: split by || first, then by && within each part
+        // Split by || first
         let or_parts = self.split_by_logical_operator(expr, "||");
         let mut last_status = 0;
         
@@ -336,8 +326,13 @@ impl Shell {
                     continue;
                 }
                 
-                // Execute this part
-                and_status = self.execute_single_command(and_part.trim());
+                // Check for pipeline in this part
+                if pipeline::has_pipeline(and_part.trim()) {
+                    and_status = pipeline::execute_pipeline(self, and_part.trim());
+                } else {
+                    // Execute this part as a single command
+                    and_status = self.execute_single_command(and_part.trim());
+                }
                 
                 // If this is an && chain and any part fails, stop
                 if and_status != 0 {

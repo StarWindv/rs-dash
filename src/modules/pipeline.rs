@@ -45,13 +45,22 @@ fn execute_single_pipeline_command(shell: &mut Shell, cmd_str: &str, stdin_data:
         .collect::<Vec<String>>();
     
     if shell.builtin_registry.has_builtin(&cmd) {
-        // For builtins in pipeline, we need to handle input/output
+        // For builtins in pipeline, we need to capture output
         let registry = Rc::clone(&shell.builtin_registry);
-        let status = registry.execute_builtin_in_pipeline(shell, &cmd, &args, is_last);
         
-        // Builtins in pipeline context - for simplicity, we'll return empty output
-        // In a real implementation, builtins should capture their output
-        (status, None)
+        if !is_last {
+            // Not last command - capture output
+            let (status, output) = registry.execute_builtin_and_capture(shell, &cmd, &args);
+            if !output.is_empty() {
+                (status, Some(output.into_bytes()))
+            } else {
+                (status, None)
+            }
+        } else {
+            // Last command - execute normally
+            let status = registry.execute_builtin_in_pipeline(shell, &cmd, &args, true);
+            (status, None)
+        }
     } else {
         // External command
         let path = match shell.find_in_path(&cmd) {
@@ -196,8 +205,7 @@ impl PipelineContext {
         command_index: usize,
         total_commands: usize,
     ) -> Result<(), String> {
-        // Note: cmd here is already the adapted command (e.g., "cmd.exe" for echo)
-        // We need to check if it exists
+        // Find command in PATH
         let path = if cmd.contains('/') || cmd.contains('\\') || cmd.contains('.') {
             // Looks like a path, use as is
             cmd.to_string()
@@ -206,12 +214,7 @@ impl PipelineContext {
             match shell.find_in_path(cmd) {
                 Some(path) => path,
                 None => {
-                    // For cmd.exe builtins, we don't need to find them in PATH
-                    if cmd == "cmd.exe" {
-                        "cmd.exe".to_string()
-                    } else {
-                        return Err(format!("{}: command not found", cmd));
-                    }
+                    return Err(format!("{}: command not found", cmd));
                 }
             }
         };
@@ -299,33 +302,8 @@ impl PipelineContext {
     }
 }
 
-/// Platform-specific command adaptation
-trait CommandAdapter {
-    /// Adapt command and arguments for the platform
-    fn adapt_command(&self, cmd: &str, args: &[String]) -> (String, Vec<String>);
-    
-    /// Check if command exists on this platform
-    fn command_exists(&self, shell: &Shell, cmd: &str) -> bool;
-}
-
-struct UnixCommandAdapter;
-
-impl CommandAdapter for UnixCommandAdapter {
-    fn adapt_command(&self, cmd: &str, args: &[String]) -> (String, Vec<String>) {
-        (cmd.to_string(), args.to_vec())
-    }
-    
-    fn command_exists(&self, shell: &Shell, cmd: &str) -> bool {
-        shell.find_in_path(cmd).is_some()
-    }
-}
-
 /// Generic pipeline execution with proper handle management
-fn execute_pipeline_generic<A: CommandAdapter>(
-    shell: &mut Shell,
-    line: &str,
-    adapter: A,
-) -> i32 {
+fn execute_pipeline_generic(shell: &mut Shell, line: &str) -> i32 {
     let commands: Vec<&str> = line.split('|')
         .map(|s| s.trim())
         .collect();
@@ -333,7 +311,6 @@ fn execute_pipeline_generic<A: CommandAdapter>(
     if commands.is_empty() {
         return 0;
     }
-    
     
     // Special case: single command
     if commands.len() == 1 {
@@ -387,12 +364,10 @@ fn execute_pipeline_generic<A: CommandAdapter>(
     
     // Check if all commands exist on this platform
     let all_commands_exist = parsed_commands.iter().all(|(cmd, _)| {
-        let exists = adapter.command_exists(shell, cmd);
-        exists
+        shell.find_in_path(cmd).is_some()
     });
     
     if !all_commands_exist {
-
         return execute_pipeline_serial(shell, line);
     }
     
@@ -407,13 +382,10 @@ fn execute_pipeline_generic<A: CommandAdapter>(
     
     // Spawn all commands
     for (i, (cmd, args)) in parsed_commands.iter().enumerate() {
-        // Adapt command for platform
-        let (actual_cmd, actual_args) = adapter.adapt_command(cmd, args);
- 
         match context.spawn_command(
             shell,
-            &actual_cmd,
-            &actual_args,
+            cmd,
+            args,
             i,
             parsed_commands.len(),
         ) {
@@ -430,28 +402,9 @@ fn execute_pipeline_generic<A: CommandAdapter>(
     context.wait_for_completion()
 }
 
-
-fn execute_pipeline_unix(shell: &mut Shell, line: &str) -> i32 {
-    execute_pipeline_generic(shell, line, UnixCommandAdapter)
-}
-
-/// Cross-platform pipeline execution
-/// Uses platform-specific implementations
-pub fn execute_pipeline_cross_platform(shell: &mut Shell, line: &str) -> i32 {
-
-    return execute_pipeline_unix(shell, line);
-    
-    #[cfg(not(any(windows, unix)))]
-    {
-        eprintln!("Unsupported platform for parallel pipelines");
-        execute_pipeline_serial(shell, line)
-    }
-}
-
 /// Execute a pipeline (commands connected with |)
-/// Main entry point - uses cross-platform parallel execution
+/// Main entry point
 pub fn execute_pipeline(shell: &mut Shell, line: &str) -> i32 {
-    // Use cross-platform implementation
-    execute_pipeline_cross_platform(shell, line)
+    // Use generic implementation
+    execute_pipeline_generic(shell, line)
 }
-
