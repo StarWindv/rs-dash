@@ -193,30 +193,79 @@ impl Shell {
         let mut paren_depth = 0;
         let mut brace_depth = 0;
         
-        for c in line.chars() {
+        let mut chars = line.chars().peekable();
+        
+        while let Some(c) = chars.next() {
             if escape_next {
-                current.push(c);
+                // Handle escape sequences based on context
+                match (c, quote_char) {
+                    // In double quotes, only certain characters can be escaped
+                    (_, '"') => {
+                        match c {
+                            '\\' | '"' | '$' | '`' | '\n' => {
+                                // These are properly escaped in double quotes
+                                current.push(c);
+                            }
+                            _ => {
+                                // Other characters: keep both backslash and character
+                                current.push('\\');
+                                current.push(c);
+                            }
+                        }
+                    }
+                    // In single quotes, backslash has no special meaning
+                    (_, '\'') => {
+                        current.push('\\');
+                        current.push(c);
+                    }
+                    // Not in quotes
+                    (_, _) => {
+                        match c {
+                            '\n' => {
+                                // Line continuation - skip the newline
+                                // Don't add anything to current
+                            }
+                            '\\' | '\'' | '"' | '$' | '`' | ' ' | '\t' | '|' | '&' | ';' | '<' | '>' | '(' | ')' => {
+                                // These characters need escaping outside quotes
+                                current.push(c);
+                            }
+                            _ => {
+                                // Other characters: just add the character
+                                // The backslash was consumed to escape it
+                                current.push(c);
+                            }
+                        }
+                    }
+                }
                 escape_next = false;
                 continue;
             }
             
             if c == '\\' {
+                // Check if next character is newline for line continuation
+                if let Some(&next_c) = chars.peek() {
+                    if next_c == '\n' {
+                        // Line continuation - skip both backslash and newline
+                        chars.next(); // Skip the newline
+                        continue;
+                    }
+                }
                 escape_next = true;
                 current.push(c);
                 continue;
             }
             
             if (c == '\'' || c == '"') && !in_quote && paren_depth == 0 && brace_depth == 0 {
+                // Start of quote - don't add quote character to output
                 in_quote = true;
                 quote_char = c;
-                current.push(c);
                 continue;
             }
             
             if c == quote_char && in_quote {
+                // End of quote - don't add quote character to output
                 in_quote = false;
                 quote_char = '\0';
-                current.push(c);
                 continue;
             }
             
@@ -244,6 +293,11 @@ impl Shell {
             }
             
             current.push(c);
+        }
+        
+        // Handle trailing backslash
+        if escape_next {
+            current.push('\\');
         }
         
         if !current.trim().is_empty() {
@@ -318,13 +372,58 @@ impl Shell {
             let c = chars[i];
             
             if escape_next {
-                current.push(c);
+                // Handle escape sequences based on context
+                match (c, quote_char) {
+                    // In double quotes, only certain characters can be escaped
+                    (_, '"') => {
+                        match c {
+                            '\\' | '"' | '$' | '`' | '\n' => {
+                                // These are properly escaped in double quotes
+                                current.push(c);
+                            }
+                            _ => {
+                                // Other characters: keep both backslash and character
+                                current.push('\\');
+                                current.push(c);
+                            }
+                        }
+                    }
+                    // In single quotes, backslash has no special meaning
+                    (_, '\'') => {
+                        current.push('\\');
+                        current.push(c);
+                    }
+                    // Not in quotes
+                    (_, _) => {
+                        match c {
+                            '\n' => {
+                                // Line continuation - skip the newline
+                                // Don't add anything to current
+                            }
+                            '\\' | '\'' | '"' | '$' | '`' | ' ' | '\t' | '|' | '&' | ';' | '<' | '>' | '(' | ')' => {
+                                // These characters need escaping outside quotes
+                                current.push(c);
+                            }
+                            _ => {
+                                // Other characters: just add the character
+                                // The backslash was consumed to escape it
+                                current.push(c);
+                            }
+                        }
+                    }
+                }
                 escape_next = false;
                 i += 1;
                 continue;
             }
             
             if c == '\\' {
+                // Check if next character is newline for line continuation
+                if i + 1 < chars.len() && chars[i + 1] == '\n' {
+                    // Line continuation - skip both backslash and newline
+                    i += 2; // Skip backslash and newline
+                    continue;
+                }
                 escape_next = true;
                 current.push(c);
                 i += 1;
@@ -332,17 +431,17 @@ impl Shell {
             }
             
             if (c == '\'' || c == '"') && !in_quote && paren_depth == 0 && brace_depth == 0 {
+                // Start of quote - don't add quote character to output
                 in_quote = true;
                 quote_char = c;
-                current.push(c);
                 i += 1;
                 continue;
             }
             
             if c == quote_char && in_quote {
+                // End of quote - don't add quote character to output
                 in_quote = false;
                 quote_char = '\0';
-                current.push(c);
                 i += 1;
                 continue;
             }
@@ -393,6 +492,11 @@ impl Shell {
             
             current.push(c);
             i += 1;
+        }
+        
+        // Handle trailing backslash
+        if escape_next {
+            current.push('\\');
         }
         
         if !current.trim().is_empty() {

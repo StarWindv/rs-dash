@@ -9,16 +9,68 @@ pub fn parse_command(line: &str) -> (String, Vec<String>) {
     let mut escape_next = false;
     let mut paren_depth = 0;
     
-    for c in line.chars() {
+    let mut chars = line.chars().peekable();
+    
+    while let Some(c) = chars.next() {
         if escape_next {
-            current.push(c);
+            // Handle escape sequences based on context
+            match (c, quote_char) {
+                // In double quotes, only certain characters can be escaped
+                (_, '"') => {
+                    match c {
+                        '\\' | '"' | '$' | '`' | '\n' => {
+                            // These are properly escaped in double quotes
+                            current.push(c);
+                        }
+                        _ => {
+                            // In double quotes, backslash before non-special character
+                            // is kept as literal backslash followed by the character
+                            current.push('\\');
+                            current.push(c);
+                        }
+                    }
+                }
+                // In single quotes, backslash has no special meaning
+                (_, '\'') => {
+                    // In single quotes, backslash is always literal
+                    current.push('\\');
+                    current.push(c);
+                }
+                // Not in quotes
+                (_, _) => {
+                    match c {
+                        '\n' => {
+                            // Line continuation - skip the newline
+                            // Don't add anything to current
+                        }
+                        '\\' | '\'' | '"' | '$' | '`' | ' ' | '\t' | '|' | '&' | ';' | '<' | '>' | '(' | ')' => {
+                            // These characters need escaping outside quotes
+                            current.push(c);
+                        }
+                        _ => {
+                            // Other characters: backslash was consumed to escape it
+                            current.push(c);
+                        }
+                    }
+                }
+            }
             escape_next = false;
         } else if c == '\\' {
+            // Check if next character is newline for line continuation
+            if let Some(&next_c) = chars.peek() {
+                if next_c == '\n' {
+                    // Line continuation - skip both backslash and newline
+                    chars.next(); // Skip the newline
+                    continue;
+                }
+            }
             escape_next = true;
         } else if (c == '\'' || c == '"') && !in_quote && paren_depth == 0 {
+            // Start of quote - don't add quote character to output
             in_quote = true;
             quote_char = c;
         } else if c == quote_char && in_quote {
+            // End of quote - don't add quote character to output
             in_quote = false;
             quote_char = '\0';
         } else if c == '$' {
@@ -46,6 +98,11 @@ pub fn parse_command(line: &str) -> (String, Vec<String>) {
         } else {
             current.push(c);
         }
+    }
+    
+    // Handle trailing backslash
+    if escape_next {
+        current.push('\\');
     }
     
     if !current.is_empty() {
@@ -89,19 +146,59 @@ impl<'a> Iterator for CommandSplitter<'a> {
         let mut paren_depth = 0;
         let mut brace_depth = 0;
         
-        while self.pos < self.input.len() {
-            let c = match self.input.chars().nth(self.pos) {
-                Some(ch) => ch,
-                None => break,
-            };
+        let chars: Vec<char> = self.input.chars().collect();
+        
+        while self.pos < chars.len() {
+            let c = chars[self.pos];
             
             if escape_next {
+                // Handle escape sequences based on context
+                match (c, quote_char) {
+                    // In double quotes, only certain characters can be escaped
+                    (_, '"') => {
+                        match c {
+                            '\\' | '"' | '$' | '`' | '\n' => {
+                                // These are properly escaped in double quotes
+                            }
+                            _ => {
+                                // Other characters: backslash is kept
+                            }
+                        }
+                    }
+                    // In single quotes, backslash has no special meaning
+                    (_, '\'') => {
+                        // Backslash is kept
+                    }
+                    // Not in quotes
+                    (_, _) => {
+                        match c {
+                            '\n' => {
+                                // Line continuation - skip the newline
+                                self.pos += 1;
+                                escape_next = false;
+                                continue;
+                            }
+                            '\\' | '\'' | '"' | '$' | '`' | ' ' | '\t' | '|' | '&' | ';' | '<' | '>' | '(' | ')' => {
+                                // These characters need escaping outside quotes
+                            }
+                            _ => {
+                                // Other characters: backslash was consumed to escape it
+                            }
+                        }
+                    }
+                }
                 escape_next = false;
                 self.pos += 1;
                 continue;
             }
             
             if c == '\\' {
+                // Check if next character is newline for line continuation
+                if self.pos + 1 < chars.len() && chars[self.pos + 1] == '\n' {
+                    // Line continuation - skip both backslash and newline
+                    self.pos += 2;
+                    continue;
+                }
                 escape_next = true;
                 self.pos += 1;
                 continue;
@@ -155,14 +252,14 @@ impl<'a> Iterator for CommandSplitter<'a> {
                     
                     // Check for && and || only at word boundaries
                     // We need to check if we're at a word boundary
-                    if c == '&' && self.pos + 1 < self.input.len() && 
-                       self.input.chars().nth(self.pos + 1) == Some('&') {
+                    if c == '&' && self.pos + 1 < chars.len() && 
+                       chars[self.pos + 1] == '&' {
                         // Check if we're at a word boundary (preceded by whitespace or start of string)
                         let is_word_boundary = if start == self.pos {
                             true // At start of command
                         } else {
-                            let prev_char = self.input.chars().nth(self.pos - 1);
-                            prev_char.map(|ch| ch.is_whitespace()).unwrap_or(true)
+                            let prev_char = chars[self.pos - 1];
+                            prev_char.is_whitespace()
                         };
                         
                         if is_word_boundary {
@@ -172,14 +269,14 @@ impl<'a> Iterator for CommandSplitter<'a> {
                         }
                     }
                     
-                    if c == '|' && self.pos + 1 < self.input.len() && 
-                       self.input.chars().nth(self.pos + 1) == Some('|') {
+                    if c == '|' && self.pos + 1 < chars.len() && 
+                       chars[self.pos + 1] == '|' {
                         // Check if we're at a word boundary
                         let is_word_boundary = if start == self.pos {
                             true // At start of command
                         } else {
-                            let prev_char = self.input.chars().nth(self.pos - 1);
-                            prev_char.map(|ch| ch.is_whitespace()).unwrap_or(true)
+                            let prev_char = chars[self.pos - 1];
+                            prev_char.is_whitespace()
                         };
                         
                         if is_word_boundary {
