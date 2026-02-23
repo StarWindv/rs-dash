@@ -184,7 +184,7 @@ impl Shell {
     }
     
     /// Split a line by a separator, respecting quotes and parentheses
-    fn split_by_separator(&self, line: &str, separator: char) -> Vec<String> {
+    pub fn split_by_separator(&self, line: &str, separator: char) -> Vec<String> {
         let mut result = Vec::new();
         let mut current = String::new();
         let mut in_quote = false;
@@ -251,7 +251,6 @@ impl Shell {
                     }
                 }
                 escape_next = true;
-                current.push(c);
                 continue;
             }
             
@@ -286,7 +285,10 @@ impl Shell {
                 
                 // Check for separator
                 if c == separator && paren_depth == 0 && brace_depth == 0 {
-                    result.push(current.trim().to_string());
+                    let trimmed = current.trim().to_string();
+                    if !trimmed.is_empty() {
+                        result.push(trimmed);
+                    }
                     current.clear();
                     continue;
                 }
@@ -356,7 +358,7 @@ impl Shell {
     }
     
     /// Split by logical operator, respecting quotes and parentheses
-    fn split_by_logical_operator(&self, expr: &str, operator: &str) -> Vec<String> {
+    pub fn split_by_logical_operator(&self, expr: &str, operator: &str) -> Vec<String> {
         let mut result = Vec::new();
         let mut current = String::new();
         let mut in_quote = false;
@@ -425,7 +427,6 @@ impl Shell {
                     continue;
                 }
                 escape_next = true;
-                current.push(c);
                 i += 1;
                 continue;
             }
@@ -481,7 +482,10 @@ impl Shell {
                         };
                         
                         if before_ok && after_ok {
-                            result.push(current.trim().to_string());
+                            let trimmed = current.trim().to_string();
+                            if !trimmed.is_empty() {
+                                result.push(trimmed);
+                            }
                             current.clear();
                             i += op_chars.len();
                             continue;

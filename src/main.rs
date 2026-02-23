@@ -6,6 +6,7 @@ use std::process;
 use std::rc::Rc;
 
 mod modules;
+mod module_tests;
 
 use modules::shell::Shell;
 
