@@ -700,7 +700,7 @@ impl ControlExecutor {
     }
     
     /// Evaluate a condition
-    fn evaluate_condition(shell: &mut Shell, condition: &Condition) -> bool {
+    pub fn evaluate_condition(shell: &mut Shell, condition: &Condition) -> bool {
         match condition {
             Condition::Command(cmd_str) => {
                 // Execute the command and check exit status

@@ -13,8 +13,10 @@ impl Builtin for BracketBuiltin {
     
     fn execute(&self, _shell: &mut Shell, args: &[String]) -> i32 {
         // The "[" command is an alias for test
-        // We need to pass the args as-is, including the "[" itself
-        // The test builtin will handle it
-        crate::modules::builtins::test::execute_test(args)
+        // We need to pass the args as-is, but we need to add "[" as the first argument
+        // because test expects it
+        let mut full_args = vec!["[".to_string()];
+        full_args.extend_from_slice(args);
+        crate::modules::builtins::test::execute_test(&full_args)
     }
 }
