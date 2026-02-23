@@ -1,10 +1,3 @@
-//! Fixed pipeline execution with proper handle management
-//! 
-//! Key fixes:
-//! 1. Pipe handles are transferred by ownership, not cloned
-//! 2. Simplified Windows command adaptation - no automatic cmd.exe wrapping
-//! 3. Proper cleanup to avoid hanging processes
-
 use std::process::{Command, Stdio, Child};
 use std::io::{self, Write};
 use std::rc::Rc;
@@ -21,7 +14,6 @@ pub fn has_pipeline(line: &str) -> bool {
     // We need to check if there's a pipe that's not part of ||
     let chars = line.chars().collect::<Vec<char>>();
     let mut i = 0;
-    
     while i < chars.len() {
         if chars[i] == '|' {
             if i + 1 < chars.len() && chars[i + 1] == '|' {
@@ -155,54 +147,43 @@ pub fn execute_pipeline_serial(shell: &mut Shell, line: &str) -> i32 {
     last_status
 }
 
-/// Pipe pair for connection between two commands
-struct PipePair {
-    reader: PipeReader,
-    writer: PipeWriter,
-}
-
-impl PipePair {
-    fn new() -> Result<Self, String> {
-        match pipe() {
-            Ok((reader, writer)) => Ok(Self { reader, writer }),
-            Err(e) => Err(format!("Failed to create pipe: {}", e)),
-        }
-    }
-    
-    /// Split into reader and writer (consumes self)
-    fn split(self) -> (PipeReader, PipeWriter) {
-        (self.reader, self.writer)
-    }
-}
-
 /// Pipeline execution context with proper handle management
+/// FIXED VERSION: Simplified approach with separate pipe arrays
 struct PipelineContext {
     /// Child processes
     children: Vec<Child>,
-    /// Pipe pairs for connections between commands
-    /// These are stored until needed, then ownership is transferred to commands
-    pipe_pairs: Vec<PipePair>,
+    /// Pipe readers for each command (except first)
+    /// command i reads from pipe_reader[i-1]
+    pipe_readers: Vec<Option<PipeReader>>,
+    /// Pipe writers for each command (except last)
+    /// command i writes to pipe_writer[i]
+    pipe_writers: Vec<Option<PipeWriter>>,
 }
 
 impl PipelineContext {
-    fn new() -> Self {
+    fn new(num_commands: usize) -> Self {
+        let num_pipes = if num_commands > 1 { num_commands - 1 } else { 0 };
         Self {
             children: Vec::new(),
-            pipe_pairs: Vec::new(),
+            pipe_readers: Vec::with_capacity(num_pipes),
+            pipe_writers: Vec::with_capacity(num_pipes),
         }
     }
     
     /// Create pipes for N commands (N-1 pipes needed)
-    fn create_pipes(&mut self, num_commands: usize) -> Result<(), String> {
-        if num_commands <= 1 {
-            return Ok(());
+    fn create_pipes(&mut self) -> Result<(), String> {
+        let num_pipes = self.pipe_readers.capacity();
+        for i in 0..num_pipes {
+            match pipe() {
+                Ok((reader, writer)) => {
+                    self.pipe_readers.push(Some(reader));
+                    self.pipe_writers.push(Some(writer));
+                }
+                Err(e) => {
+                    return Err(format!("Failed to create pipe {}: {}", i, e));
+                }
+            }
         }
-        
-        self.pipe_pairs.clear();
-        for _ in 0..(num_commands - 1) {
-            self.pipe_pairs.push(PipePair::new()?);
-        }
-        
         Ok(())
     }
     
@@ -215,13 +196,26 @@ impl PipelineContext {
         command_index: usize,
         total_commands: usize,
     ) -> Result<(), String> {
-        let path = match shell.find_in_path(cmd) {
-            Some(path) => path,
-            None => {
-                return Err(format!("{}: command not found", cmd));
+        // Note: cmd here is already the adapted command (e.g., "cmd.exe" for echo)
+        // We need to check if it exists
+        let path = if cmd.contains('/') || cmd.contains('\\') || cmd.contains('.') {
+            // Looks like a path, use as is
+            cmd.to_string()
+        } else {
+            // Try to find in PATH
+            match shell.find_in_path(cmd) {
+                Some(path) => path,
+                None => {
+                    // For cmd.exe builtins, we don't need to find them in PATH
+                    if cmd == "cmd.exe" {
+                        "cmd.exe".to_string()
+                    } else {
+                        return Err(format!("{}: command not found", cmd));
+                    }
+                }
             }
         };
-        
+
         let mut command = Command::new(path);
         for arg in args {
             command.arg(arg);
@@ -231,52 +225,21 @@ impl PipelineContext {
         
         // Set up stdin (from previous pipe if not first command)
         if command_index > 0 {
-            // Take ownership of the reader from the previous pipe pair
-            let pipe_pair = self.pipe_pairs.remove(command_index - 1);
-            let (reader, writer) = pipe_pair.split();
-            
-            // Give reader to this command as stdin
-            command.stdin(Stdio::from(reader));
-            
-            // We no longer need the writer (it was used by previous command)
-            drop(writer);
-            
-            // Adjust indices since we removed an element
-            // The remaining pipe pairs shift left
+            // Take the reader from the previous pipe
+            if let Some(reader) = self.pipe_readers[command_index - 1].take() {
+                command.stdin(Stdio::from(reader));
+            } else {
+                return Err(format!("No pipe reader available for command {}", command_index));
+            }
         }
         
         // Set up stdout (to next pipe if not last command)
         if command_index < total_commands - 1 {
-            // Calculate the new index after potential removal above
-            let pipe_index = if command_index > 0 {
-                command_index - 1
-            } else {
-                command_index
-            };
-            
-            if pipe_index < self.pipe_pairs.len() {
-                // Take ownership of the writer from the current pipe pair
-                let pipe_pair = self.pipe_pairs.remove(pipe_index);
-                let (reader, writer) = pipe_pair.split();
-                
-                // Give writer to this command as stdout
+            // Take the writer for this command
+            if let Some(writer) = self.pipe_writers[command_index].take() {
                 command.stdout(Stdio::from(writer));
-                
-                // Store reader for the next command
-                // We need to create a new PipePair with just the reader
-                // The writer will be dropped when the command finishes
-                let (dummy_reader, dummy_writer) = match pipe() {
-                    Ok((r, w)) => (r, w),
-                    Err(e) => return Err(format!("Failed to create dummy pipe: {}", e)),
-                };
-                self.pipe_pairs.insert(pipe_index, PipePair {
-                    reader,
-                    writer: dummy_writer, // Dummy writer that will be dropped
-                });
-                // We don't need the dummy reader
-                drop(dummy_reader);
             } else {
-                return Err("Pipe index out of bounds".to_string());
+                return Err(format!("No pipe writer available for command {}", command_index));
             }
         }
         // Last command's stdout goes to terminal (default)
@@ -300,28 +263,32 @@ impl PipelineContext {
             // Wait to avoid zombie processes
             let _ = child.wait();
         }
-        // Drop all pipe pairs
-        self.pipe_pairs.clear();
+        // Drop all pipe ends
+        self.pipe_readers.clear();
+        self.pipe_writers.clear();
     }
     
     /// Wait for all children to complete and get exit status of last command
-    fn wait_for_completion(&mut self, total_commands: usize) -> i32 {
-        // Drop all remaining pipe pairs
+    fn wait_for_completion(&mut self) -> i32 {
+        // Drop all remaining pipe ends
         // This closes any pipe ends that are still open in parent
-        self.pipe_pairs.clear();
+        self.pipe_readers.clear();
+        self.pipe_writers.clear();
         
         let mut last_status = 0;
+        let total_children = self.children.len();
         
         for (i, mut child) in self.children.drain(..).enumerate() {
             match child.wait() {
                 Ok(status) => {
-                    if i == total_commands - 1 {
-                        last_status = status.code().unwrap_or(128);
+                    let exit_code = status.code().unwrap_or(128);
+                    if i == total_children - 1 {
+                        last_status = exit_code;
                     }
                 }
                 Err(e) => {
                     eprintln!("Error waiting for command {}: {}", i + 1, e);
-                    if i == total_commands - 1 {
+                    if i == total_children - 1 {
                         last_status = 1;
                     }
                 }
@@ -336,43 +303,20 @@ impl PipelineContext {
 trait CommandAdapter {
     /// Adapt command and arguments for the platform
     fn adapt_command(&self, cmd: &str, args: &[String]) -> (String, Vec<String>);
+    
+    /// Check if command exists on this platform
+    fn command_exists(&self, shell: &Shell, cmd: &str) -> bool;
 }
 
-/// Windows command adapter - SIMPLIFIED
-/// We don't automatically wrap commands in cmd.exe
-/// Only handle .bat/.cmd files explicitly
-#[cfg(windows)]
-struct WindowsCommandAdapter;
-
-#[cfg(windows)]
-impl CommandAdapter for WindowsCommandAdapter {
-    fn adapt_command(&self, cmd: &str, args: &[String]) -> (String, Vec<String>) {
-        // On Windows, we handle:
-        // 1. .bat and .cmd files - need cmd.exe
-        // 2. Everything else - execute directly
-        
-        // Check if it's a batch file (ends with .bat or .cmd)
-        if cmd.ends_with(".bat") || cmd.ends_with(".cmd") {
-            // Batch files need cmd.exe /c
-            let mut cmd_args = vec!["/c".to_string(), cmd.to_string()];
-            cmd_args.extend(args.to_vec());
-            ("cmd.exe".to_string(), cmd_args)
-        } else {
-            // Regular executable - execute directly
-            (cmd.to_string(), args.to_vec())
-        }
-    }
-}
-
-/// Unix command adapter
-#[cfg(unix)]
 struct UnixCommandAdapter;
 
-#[cfg(unix)]
 impl CommandAdapter for UnixCommandAdapter {
     fn adapt_command(&self, cmd: &str, args: &[String]) -> (String, Vec<String>) {
-        // Unix doesn't need special adaptation
         (cmd.to_string(), args.to_vec())
+    }
+    
+    fn command_exists(&self, shell: &Shell, cmd: &str) -> bool {
+        shell.find_in_path(cmd).is_some()
     }
 }
 
@@ -389,6 +333,7 @@ fn execute_pipeline_generic<A: CommandAdapter>(
     if commands.is_empty() {
         return 0;
     }
+    
     
     // Special case: single command
     if commands.len() == 1 {
@@ -418,23 +363,44 @@ fn execute_pipeline_generic<A: CommandAdapter>(
             .collect::<Vec<String>>();
         parsed_commands.push((cmd, expanded_args));
     }
-    
+
     // Check for builtins - if any command is a builtin, fall back to serial execution
     // because builtins may need shell state and are harder to run in parallel
-    let has_builtin = parsed_commands.iter().any(|(cmd, _)| {
-        shell.builtin_registry.has_builtin(cmd)
+    // But for simple builtins like echo, we can still use parallel execution
+    let has_complex_builtin = parsed_commands.iter().any(|(cmd, _)| {
+        if shell.builtin_registry.has_builtin(cmd) {
+            // Check if it's a simple builtin that can work in pipeline
+            // Simple builtins: echo, true, false, pwd
+            // Complex builtins: cd, exit, help, etc.
+            match cmd.as_str() {
+                "echo" | "true" | "false" | "pwd" => false, // These can work in pipeline
+                _ => true, // Others need serial execution
+            }
+        } else {
+            false
+        }
     });
     
-    if has_builtin {
-        // Fall back to serial execution for builtins
+    if has_complex_builtin {
+        return execute_pipeline_serial(shell, line);
+    }
+    
+    // Check if all commands exist on this platform
+    let all_commands_exist = parsed_commands.iter().all(|(cmd, _)| {
+        let exists = adapter.command_exists(shell, cmd);
+        exists
+    });
+    
+    if !all_commands_exist {
+
         return execute_pipeline_serial(shell, line);
     }
     
     // Create pipeline context
-    let mut context = PipelineContext::new();
+    let mut context = PipelineContext::new(parsed_commands.len());
     
     // Create pipes
-    if let Err(e) = context.create_pipes(parsed_commands.len()) {
+    if let Err(e) = context.create_pipes() {
         eprintln!("{}", e);
         return 1;
     }
@@ -443,7 +409,7 @@ fn execute_pipeline_generic<A: CommandAdapter>(
     for (i, (cmd, args)) in parsed_commands.iter().enumerate() {
         // Adapt command for platform
         let (actual_cmd, actual_args) = adapter.adapt_command(cmd, args);
-        
+ 
         match context.spawn_command(
             shell,
             &actual_cmd,
@@ -461,17 +427,10 @@ fn execute_pipeline_generic<A: CommandAdapter>(
     }
     
     // Wait for completion
-    context.wait_for_completion(parsed_commands.len())
+    context.wait_for_completion()
 }
 
-/// Windows-specific pipeline execution
-#[cfg(windows)]
-fn execute_pipeline_windows(shell: &mut Shell, line: &str) -> i32 {
-    execute_pipeline_generic(shell, line, WindowsCommandAdapter)
-}
 
-/// Linux/Unix-specific pipeline execution
-#[cfg(unix)]
 fn execute_pipeline_unix(shell: &mut Shell, line: &str) -> i32 {
     execute_pipeline_generic(shell, line, UnixCommandAdapter)
 }
@@ -479,10 +438,7 @@ fn execute_pipeline_unix(shell: &mut Shell, line: &str) -> i32 {
 /// Cross-platform pipeline execution
 /// Uses platform-specific implementations
 pub fn execute_pipeline_cross_platform(shell: &mut Shell, line: &str) -> i32 {
-    #[cfg(windows)]
-    return execute_pipeline_windows(shell, line);
-    
-    #[cfg(unix)]
+
     return execute_pipeline_unix(shell, line);
     
     #[cfg(not(any(windows, unix)))]
@@ -498,3 +454,4 @@ pub fn execute_pipeline(shell: &mut Shell, line: &str) -> i32 {
     // Use cross-platform implementation
     execute_pipeline_cross_platform(shell, line)
 }
+
