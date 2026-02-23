@@ -1,8 +1,11 @@
 //! Pipeline execution
 
 use std::process::{Command, Stdio, Child};
-use std::io::{self, Write, Read};
+use std::io::{self, Write};
 use std::rc::Rc;
+
+// Import os_pipe for creating real OS pipes
+use os_pipe::pipe;
 
 use crate::modules::shell::Shell;
 use crate::modules::expansion;
@@ -147,7 +150,7 @@ pub fn execute_pipeline_serial(shell: &mut Shell, line: &str) -> i32 {
     last_status
 }
 
-/// Create and manage a true parallel pipeline
+/// Create and manage a true parallel pipeline using OS pipes
 pub fn execute_pipeline_parallel(shell: &mut Shell, line: &str) -> i32 {
     let commands: Vec<&str> = line.split('|')
         .map(|s| s.trim())
@@ -202,38 +205,23 @@ pub fn execute_pipeline_parallel(shell: &mut Shell, line: &str) -> i32 {
     // We'll create all processes and connect their pipes
     
     let mut children: Vec<Child> = Vec::new();
+    let mut pipes: Vec<(os_pipe::PipeReader, os_pipe::PipeWriter)> = Vec::new();
     
-    // Create the first command
-    let (first_cmd, first_args) = &parsed_commands[0];
-    let first_path = match shell.find_in_path(first_cmd) {
-        Some(path) => path,
-        None => {
-            eprintln!("{}: command not found", first_cmd);
-            return 127;
+    // Create pipes between commands
+    for _ in 0..(parsed_commands.len() - 1) {
+        match pipe() {
+            Ok((reader, writer)) => {
+                pipes.push((reader, writer));
+            }
+            Err(e) => {
+                eprintln!("Failed to create pipe: {}", e);
+                return 1;
+            }
         }
-    };
-    
-    let mut first_command = Command::new(first_path);
-    for arg in first_args {
-        first_command.arg(arg);
     }
-    first_command.current_dir(&shell.current_dir);
-    first_command.envs(&shell.env_vars);
-    first_command.stdout(Stdio::piped()); // First command's output goes to pipe
     
-    let first_child = match first_command.spawn() {
-        Ok(mut child) => child,
-        Err(e) => {
-            eprintln!("{}: {}", first_cmd, e);
-            return 1;
-        }
-    };
-    
-    children.push(first_child);
-    let mut prev_stdout = children[0].stdout.take();
-    
-    // Create intermediate commands
-    for i in 1..parsed_commands.len() - 1 {
+    // Spawn all commands in parallel
+    for i in 0..parsed_commands.len() {
         let (cmd, args) = &parsed_commands[i];
         let path = match shell.find_in_path(cmd) {
             Some(path) => path,
@@ -254,23 +242,31 @@ pub fn execute_pipeline_parallel(shell: &mut Shell, line: &str) -> i32 {
         command.current_dir(&shell.current_dir);
         command.envs(&shell.env_vars);
         
-        // Connect stdin from previous command
-        if let Some(stdout) = prev_stdout.take() {
-            command.stdin(Stdio::from(stdout));
+        // Set up stdin
+        if i > 0 {
+            // Not the first command - connect to previous pipe's reader
+            let (reader, _) = &pipes[i - 1];
+            // Convert os_pipe::PipeReader to std::process::Stdio
+            command.stdin(Stdio::from(reader.try_clone().expect("Failed to clone pipe reader")));
         }
         
-        // Set up stdout for next command
-        command.stdout(Stdio::piped());
+        // Set up stdout
+        if i < parsed_commands.len() - 1 {
+            // Not the last command - connect to current pipe's writer
+            let (_, writer) = &pipes[i];
+            // Convert os_pipe::PipeWriter to std::process::Stdio
+            command.stdout(Stdio::from(writer.try_clone().expect("Failed to clone pipe writer")));
+        }
+        // Last command's stdout goes to terminal (default)
         
         match command.spawn() {
-            Ok(mut child) => {
-                prev_stdout = child.stdout.take();
+            Ok(child) => {
                 children.push(child);
             }
             Err(e) => {
                 eprintln!("{}: {}", cmd, e);
                 // Kill already spawned children
-                for mut child in children {
+                for child in &mut children {
                     let _ = child.kill();
                 }
                 return 1;
@@ -278,50 +274,9 @@ pub fn execute_pipeline_parallel(shell: &mut Shell, line: &str) -> i32 {
         }
     }
     
-    // Create the last command
-    let last_idx = parsed_commands.len() - 1;
-    let (last_cmd, last_args) = &parsed_commands[last_idx];
-    let last_path = match shell.find_in_path(last_cmd) {
-        Some(path) => path,
-        None => {
-            eprintln!("{}: command not found", last_cmd);
-            // Kill already spawned children
-            for mut child in children {
-                let _ = child.kill();
-            }
-            return 127;
-        }
-    };
-    
-    let mut last_command = Command::new(last_path);
-    for arg in last_args {
-        last_command.arg(arg);
-    }
-    last_command.current_dir(&shell.current_dir);
-    last_command.envs(&shell.env_vars);
-    
-    // Connect stdin from previous command
-    if let Some(stdout) = prev_stdout.take() {
-        last_command.stdin(Stdio::from(stdout));
-    }
-    
-    // Last command's output goes to terminal
-    // We'll capture it and print it
-    last_command.stdout(Stdio::piped());
-    
-    let last_child = match last_command.spawn() {
-        Ok(child) => child,
-        Err(e) => {
-            eprintln!("{}: {}", last_cmd, e);
-            // Kill already spawned children
-            for mut child in children {
-                let _ = child.kill();
-            }
-            return 1;
-        }
-    };
-    
-    children.push(last_child);
+    // Close pipe writer ends in the parent process
+    // This is important: when all writers are closed, readers get EOF
+    drop(pipes);
     
     // Wait for all children to complete
     let mut last_status = 0;
@@ -350,10 +305,306 @@ pub fn execute_pipeline_parallel(shell: &mut Shell, line: &str) -> i32 {
     last_status
 }
 
+/// Windows-specific pipeline execution
+/// Windows has different pipe semantics and command execution
+#[cfg(windows)]
+fn execute_pipeline_windows(shell: &mut Shell, line: &str) -> i32 {
+    let commands: Vec<&str> = line.split('|')
+        .map(|s| s.trim())
+        .collect();
+    
+    if commands.is_empty() {
+        return 0;
+    }
+    
+    if commands.len() == 1 {
+        let (cmd, args) = parser::parse_command(commands[0]);
+        if cmd.is_empty() {
+            return 0;
+        }
+        
+        let args = args.iter()
+            .map(|arg| expansion::expand_variables_simple(shell, arg))
+            .collect::<Vec<String>>();
+        
+        if shell.builtin_registry.has_builtin(&cmd) {
+            let registry = Rc::clone(&shell.builtin_registry);
+            return registry.execute_builtin(shell, &cmd, &args);
+        } else {
+            return shell.external_command(&cmd, &args, false, None);
+        }
+    }
+    
+    // Parse commands
+    let parsed_commands: Vec<(String, Vec<String>)> = commands.iter()
+        .map(|cmd_str| {
+            let (cmd, args) = parser::parse_command(cmd_str);
+            let expanded_args = args.iter()
+                .map(|arg| expansion::expand_variables_simple(shell, arg))
+                .collect::<Vec<String>>();
+            (cmd, expanded_args)
+        })
+        .collect();
+    
+    // Check for builtins
+    let has_builtin = parsed_commands.iter().any(|(cmd, _)| {
+        shell.builtin_registry.has_builtin(cmd)
+    });
+    
+    if has_builtin {
+        return execute_pipeline_serial(shell, line);
+    }
+    
+    // On Windows, we need to handle cmd.exe specially
+    // Many commands are actually cmd.exe builtins or batch files
+    
+    let mut children: Vec<Child> = Vec::new();
+    let mut pipes = Vec::new();
+    
+    // Create pipes
+    for _ in 0..(parsed_commands.len() - 1) {
+        match pipe() {
+            Ok(pipe_pair) => pipes.push(pipe_pair),
+            Err(e) => {
+                eprintln!("Failed to create pipe: {}", e);
+                return 1;
+            }
+        }
+    }
+    
+    // Spawn commands
+    for i in 0..parsed_commands.len() {
+        let (cmd, args) = &parsed_commands[i];
+        
+        // On Windows, check if we need to use cmd.exe
+        let (actual_cmd, actual_args) = if cmd.ends_with(".bat") || cmd.ends_with(".cmd") || 
+                                          cmd == "dir" || cmd == "copy" || cmd == "del" || 
+                                          cmd == "echo" || cmd == "type" || cmd == "findstr" {
+            // These are cmd.exe builtins or batch files
+            let mut cmd_args = vec!["/c".to_string(), cmd.clone()];
+            cmd_args.extend(args.clone());
+            ("cmd.exe".to_string(), cmd_args)
+        } else {
+            (cmd.clone(), args.clone())
+        };
+        
+        let path = match shell.find_in_path(&actual_cmd) {
+            Some(path) => path,
+            None => {
+                eprintln!("{}: command not found", cmd);
+                for mut child in children {
+                    let _ = child.kill();
+                }
+                return 127;
+            }
+        };
+        
+        let mut command = Command::new(path);
+        for arg in &actual_args {
+            command.arg(arg);
+        }
+        command.current_dir(&shell.current_dir);
+        command.envs(&shell.env_vars);
+        
+        // Set up stdin
+        if i > 0 {
+            let (reader, _) = &pipes[i - 1];
+            command.stdin(Stdio::from(reader.try_clone().expect("Failed to clone pipe reader")));
+        }
+        
+        // Set up stdout
+        if i < parsed_commands.len() - 1 {
+            let (_, writer) = &pipes[i];
+            command.stdout(Stdio::from(writer.try_clone().expect("Failed to clone pipe writer")));
+        }
+        
+        match command.spawn() {
+            Ok(child) => children.push(child),
+            Err(e) => {
+                eprintln!("{}: {}", cmd, e);
+                for mut child in children {
+                    let _ = child.kill();
+                }
+                return 1;
+            }
+        }
+    }
+    
+    // Close pipes in parent
+    drop(pipes);
+    
+    // Wait for completion
+    let mut last_status = 0;
+    for (i, mut child) in children.into_iter().enumerate() {
+        match child.wait() {
+            Ok(status) => {
+                if i == parsed_commands.len() - 1 {
+                    last_status = status.code().unwrap_or(128);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error waiting for command {}: {}", i + 1, e);
+                if i == parsed_commands.len() - 1 {
+                    last_status = 1;
+                }
+            }
+        }
+    }
+    
+    last_status
+}
+
+/// Linux/Unix-specific pipeline execution
+#[cfg(unix)]
+fn execute_pipeline_unix(shell: &mut Shell, line: &str) -> i32 {
+    let commands: Vec<&str> = line.split('|')
+        .map(|s| s.trim())
+        .collect();
+    
+    if commands.is_empty() {
+        return 0;
+    }
+    
+    if commands.len() == 1 {
+        let (cmd, args) = parser::parse_command(commands[0]);
+        if cmd.is_empty() {
+            return 0;
+        }
+        
+        let args = args.iter()
+            .map(|arg| expansion::expand_variables_simple(shell, arg))
+            .collect::<Vec<String>>();
+        
+        if shell.builtin_registry.has_builtin(&cmd) {
+            let registry = Rc::clone(&shell.builtin_registry);
+            return registry.execute_builtin(shell, &cmd, &args);
+        } else {
+            return shell.external_command(&cmd, &args, false, None);
+        }
+    }
+    
+    // Parse commands
+    let parsed_commands: Vec<(String, Vec<String>)> = commands.iter()
+        .map(|cmd_str| {
+            let (cmd, args) = parser::parse_command(cmd_str);
+            let expanded_args = args.iter()
+                .map(|arg| expansion::expand_variables_simple(shell, arg))
+                .collect::<Vec<String>>();
+            (cmd, expanded_args)
+        })
+        .collect();
+    
+    // Check for builtins
+    let has_builtin = parsed_commands.iter().any(|(cmd, _)| {
+        shell.builtin_registry.has_builtin(cmd)
+    });
+    
+    if has_builtin {
+        return execute_pipeline_serial(shell, line);
+    }
+    
+    // Create pipes
+    let mut pipes = Vec::new();
+    for _ in 0..(parsed_commands.len() - 1) {
+        match pipe() {
+            Ok(pipe_pair) => pipes.push(pipe_pair),
+            Err(e) => {
+                eprintln!("Failed to create pipe: {}", e);
+                return 1;
+            }
+        }
+    }
+    
+    // Spawn commands
+    let mut children: Vec<Child> = Vec::new();
+    
+    for i in 0..parsed_commands.len() {
+        let (cmd, args) = &parsed_commands[i];
+        let path = match shell.find_in_path(cmd) {
+            Some(path) => path,
+            None => {
+                eprintln!("{}: command not found", cmd);
+                for mut child in children {
+                    let _ = child.kill();
+                }
+                return 127;
+            }
+        };
+        
+        let mut command = Command::new(path);
+        for arg in args {
+            command.arg(arg);
+        }
+        command.current_dir(&shell.current_dir);
+        command.envs(&shell.env_vars);
+        
+        // Configure stdin
+        if i > 0 {
+            let (reader, _) = &pipes[i - 1];
+            command.stdin(Stdio::from(reader.try_clone().expect("Failed to clone pipe reader")));
+        }
+        
+        // Configure stdout
+        if i < parsed_commands.len() - 1 {
+            let (_, writer) = &pipes[i];
+            command.stdout(Stdio::from(writer.try_clone().expect("Failed to clone pipe writer")));
+        }
+        
+        match command.spawn() {
+            Ok(child) => children.push(child),
+            Err(e) => {
+                eprintln!("{}: {}", cmd, e);
+                for mut child in children {
+                    let _ = child.kill();
+                }
+                return 1;
+            }
+        }
+    }
+    
+    // Close pipes in parent
+    drop(pipes);
+    
+    // Wait for completion
+    let mut last_status = 0;
+    for (i, mut child) in children.into_iter().enumerate() {
+        match child.wait() {
+            Ok(status) => {
+                if i == parsed_commands.len() - 1 {
+                    last_status = status.code().unwrap_or(128);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error waiting for command {}: {}", i + 1, e);
+                if i == parsed_commands.len() - 1 {
+                    last_status = 1;
+                }
+            }
+        }
+    }
+    
+    last_status
+}
+
+/// Cross-platform pipeline execution
+/// Uses platform-specific implementations
+pub fn execute_pipeline_cross_platform(shell: &mut Shell, line: &str) -> i32 {
+    #[cfg(windows)]
+    return execute_pipeline_windows(shell, line);
+    
+    #[cfg(unix)]
+    return execute_pipeline_unix(shell, line);
+    
+    #[cfg(not(any(windows, unix)))]
+    {
+        eprintln!("Unsupported platform for parallel pipelines");
+        execute_pipeline_serial(shell, line)
+    }
+}
+
 /// Execute a pipeline (commands connected with |)
-/// Main entry point - uses parallel execution when possible
+/// Main entry point - uses cross-platform parallel execution
 pub fn execute_pipeline(shell: &mut Shell, line: &str) -> i32 {
-    // For now, use parallel implementation for external commands
-    // Serial implementation for builtins
-    execute_pipeline_parallel(shell, line)
+    // Use cross-platform implementation
+    execute_pipeline_cross_platform(shell, line)
 }
